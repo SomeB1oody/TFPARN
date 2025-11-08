@@ -430,9 +430,9 @@ def main():
         print(f"\nTrain Loss: {train_loss:.4f}")
         print_metrics(train_metrics, prefix="  [TRAIN] ")
 
-        # Validate (with TTA)
+        # Validate (without TTA)
         val_loss, val_metrics = validate(
-            model, dev_loader, criterion, device, epoch, use_tta=True
+            model, dev_loader, criterion, device, epoch, use_tta=False
         )
 
         print(f"\nValidation Loss: {val_loss:.4f}")

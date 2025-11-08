@@ -1073,6 +1073,21 @@ def save_model(
     import os
     from dataclasses import asdict
 
+    def convert_to_python_types(obj):
+        """Recursively convert numpy/torch types to native Python types"""
+        if isinstance(obj, dict):
+            return {key: convert_to_python_types(value) for key, value in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_to_python_types(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.floating)):
+            return obj.item()
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif isinstance(obj, (torch.Tensor,)):
+            return obj.item() if obj.numel() == 1 else obj.tolist()
+        else:
+            return obj
+
     # Create model directory
     os.makedirs(model_save_dir, exist_ok=True)
 
@@ -1087,6 +1102,9 @@ def save_model(
             'test': test_metrics
         }
     }
+
+    # Convert all numpy/torch types to native Python types
+    save_data = convert_to_python_types(save_data)
 
     # Save JSON file
     json_path = os.path.join(model_save_dir, f"{model_name}.json")

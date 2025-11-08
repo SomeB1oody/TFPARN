@@ -36,20 +36,16 @@ class DatasetConfig:
     data_dir: str  # Path to audio files
     protocol_dir: str  # Path to protocol file
     apply_calibration: bool = False  # Whether to apply Platt calibration to this dataset
+    use_tta: bool = False  # Whether to use Test-Time Augmentation for this dataset
 
 
 @dataclass
 class EvaluationConfig:
     """
     Evaluation configuration parameters
-
-    Calibration logic (automatic based on dataset name):
-    - "Dev" dataset: Used as calibration reference, no calibration applied to itself
-    - "Eval" dataset: Automatically has apply_calibration=True (uses Dev as reference)
-    - Other datasets: No calibration by default (can be manually enabled)
     """
     # Model path
-    model_path: str = "./ce/best_model_eer_0.3947.pt"
+    model_path: str = "./ce_opt/best_model_exp1.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
@@ -96,21 +92,7 @@ class EvaluationConfig:
     # Whether to apply prior correction (only applied when calibration is enabled)
     apply_prior_correction: bool = True
 
-    def __post_init__(self):
-        """
-        Automatically configure calibration based on dataset names
-        - "Dev": No calibration (used as reference)
-        - "Eval": Enable calibration automatically
-        - Others: Keep default (False)
-        """
-        for dataset in self.datasets:
-            if dataset.name == "Eval":
-                # Automatically enable calibration for Eval
-                dataset.apply_calibration = True
-            elif dataset.name == "Dev":
-                # Dev is calibration reference, never apply calibration to itself
-                dataset.apply_calibration = False
-            # Other datasets keep their default apply_calibration value
+    tta_num_crops: int = 5
 
 
 # ============================================================================
@@ -135,6 +117,7 @@ def create_dataloader(
     print(f"  - Data dir: {dataset_config.data_dir}")
     print(f"  - Protocol: {dataset_config.protocol_dir}")
     print(f"  - Apply calibration: {dataset_config.apply_calibration}")
+    print(f"  - Use TTA: {dataset_config.use_tta}")
 
     # Create data processing args
     data_args = DataProcessArgs()
@@ -158,8 +141,8 @@ def create_dataloader(
     data_args.train_shuffle = False  # No shuffle for evaluation
     data_args.seed = config.seed
     data_args.use_rawboost = False  # No augmentation for evaluation
-    data_args.use_tta = True  # Enable TTA for evaluation
-    data_args.tta_num_crops = 5  # Number of crops per sample
+    data_args.use_tta = dataset_config.use_tta  # Set TTA based on dataset config
+    data_args.tta_num_crops = EvaluationConfig.tta_num_crops  # Number of crops per sample for TTA
 
     # Load data (we use dev_loader as it's typically used for validation/eval)
     _, loader, _, _ = make_loaders(data_args)
@@ -317,8 +300,8 @@ def main():
         print(f"Evaluating: {dataset_config.name}")
         print(f"{'='*80}")
 
-        # Evaluate dataset (with TTA enabled)
-        logits, labels = evaluate_dataset(model, dataloader, device, dataset_config.name, use_tta=True)
+        # Evaluate dataset (with TTA based on dataset config)
+        logits, labels = evaluate_dataset(model, dataloader, device, dataset_config.name, use_tta=dataset_config.use_tta)
 
         # Compute initial metrics (without calibration)
         print(f"\n[Computing] Initial metrics for {dataset_config.name}")

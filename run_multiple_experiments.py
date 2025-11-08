@@ -262,7 +262,7 @@ def run_single_experiment(
 
         # Validate
         val_loss, val_metrics = validate(
-            model, dev_loader, criterion, device, epoch, use_tta=True
+            model, dev_loader, criterion, device, epoch, use_tta=False
         )
 
         print(f"\nValidation Loss: {val_loss:.4f}")
