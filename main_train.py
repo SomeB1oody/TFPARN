@@ -63,7 +63,7 @@ class ModelArgs:
     activation: str = "relu"
 
     # Training Hyperparameters
-    max_epochs: int = 50
+    max_epochs: int = 200
     learning_rate: float = 1e-4
     weight_decay: float = 1e-4
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
@@ -81,7 +81,7 @@ class ModelArgs:
     pairwise_weight: float = 0.5  # Weight for pairwise loss term
 
     # Early Stopping
-    early_stopping_patience: int = 8
+    early_stopping_patience: int = 15
     early_stopping_metric: str = "eer"  # Options: 'f1_macro', 'accuracy', 'recall_macro', 'eer', 'auc_roc'
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
