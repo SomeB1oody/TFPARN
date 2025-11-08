@@ -17,7 +17,7 @@ from utils import (
     set_seed, get_device, clear_cuda_cache,
     create_loss_function, compute_all_metrics,
     print_metrics, print_classification_report_wrapper,
-    count_parameters, save_checkpoint, EarlyStopping
+    count_parameters, save_model, EarlyStopping
 )
 
 
@@ -555,15 +555,27 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"[✓] Loaded best model from epoch {checkpoint['epoch']}")
 
-    eval_logits, eval_labels = evaluate(model, eval_loader, device, use_tta=True)
+    # Evaluate on train set to get train metrics
+    print("\nEvaluating on training set...")
+    train_logits, train_labels = evaluate(model, train_loader, device, use_tta=False)
+    final_train_metrics = compute_all_metrics(train_logits, train_labels)
 
-    print("\nComputing final metrics...")
+    # Evaluate on validation set to get val metrics
+    print("\nEvaluating on validation set...")
+    val_logits, val_labels = evaluate(model, dev_loader, device, use_tta=True)
+    final_val_metrics = compute_all_metrics(val_logits, val_labels)
+
+    # Evaluate on test set
+    print("\nEvaluating on test set...")
+    eval_logits, eval_labels = evaluate(model, eval_loader, device, use_tta=True)
     eval_metrics = compute_all_metrics(eval_logits, eval_labels)
 
     print("\n" + "="*80)
     print("FINAL EVALUATION RESULTS")
     print("="*80)
-    print_metrics(eval_metrics, prefix="  [EVAL] ")
+    print_metrics(final_train_metrics, prefix="  [TRAIN] ")
+    print_metrics(final_val_metrics, prefix="  [VAL] ")
+    print_metrics(eval_metrics, prefix="  [TEST] ")
 
     # Print classification report
     print_classification_report_wrapper(
@@ -585,20 +597,34 @@ def main():
         # Get the metric value from eval set
         eval_metric_value = eval_metrics[args.early_stopping_metric]
 
-        # Create final model name with metric and value
-        final_save_path = f"{args.save_dir}/best_model_{args.early_stopping_metric}_{eval_metric_value:.4f}.pt"
+        # Create model name with metric and value
+        model_name = f"best_model_{args.early_stopping_metric}_{eval_metric_value:.4f}"
 
-        save_checkpoint(
-            model,
-            optimizer,
-            best_epoch,
-            eval_metrics,
-            final_save_path
+        # Create directory with same name as model
+        model_dir = os.path.join(args.save_dir, model_name)
+
+        print(f"\nSaving model to directory: {model_dir}")
+
+        # Call save_model function
+        save_model(
+            model_save_dir=model_dir,
+            model_name=model_name,
+            model=model,
+            optimizer=optimizer,
+            data_args=data_args,
+            model_args=model_args,
+            train_args=args,
+            train_metrics=final_train_metrics,
+            val_metrics=final_val_metrics,
+            test_metrics=eval_metrics
         )
 
-        print(f"\n[✓] Model saved successfully to {final_save_path}")
+        print(f"\n[✓] Model saved successfully!")
+        print(f"  - Directory: {model_dir}")
+        print(f"  - Model weights: {model_name}.pt")
+        print(f"  - Configuration & metrics: {model_name}.json")
         print(f"  - Metric: {args.early_stopping_metric}")
-        print(f"  - Value on Eval set: {eval_metric_value:.4f}")
+        print(f"  - Value on Test set: {eval_metric_value:.4f}")
     else:
         print("\n[!] Model not saved")
 

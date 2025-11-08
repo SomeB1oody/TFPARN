@@ -658,6 +658,67 @@ def load_checkpoint(
     return model, optimizer, epoch, metrics
 
 
+def save_model(
+    model_save_dir: str,
+    model_name: str,
+    model: nn.Module,
+    optimizer: torch.optim.Optimizer,
+    data_args,
+    model_args,
+    train_args,
+    train_metrics: Dict[str, float],
+    val_metrics: Dict[str, float],
+    test_metrics: Dict[str, float]
+) -> None:
+    """
+    Save model weights and all configuration/metrics to JSON
+
+    Args:
+        model_save_dir: Directory to save model and JSON
+        model_name: Name for the model (without extension)
+        model: PyTorch model
+        optimizer: Optimizer
+        data_args: Data processing arguments
+        model_args: Model architecture arguments
+        train_args: Training arguments
+        train_metrics: Metrics on training set
+        val_metrics: Metrics on validation set
+        test_metrics: Metrics on test set
+    """
+    import json
+    import os
+    from dataclasses import asdict
+
+    # Create model directory
+    os.makedirs(model_save_dir, exist_ok=True)
+
+    # Prepare data to save
+    save_data = {
+        'data_process_args': asdict(data_args) if hasattr(data_args, '__dataclass_fields__') else vars(data_args),
+        'model_args': asdict(model_args) if hasattr(model_args, '__dataclass_fields__') else vars(model_args),
+        'train_args': asdict(train_args) if hasattr(train_args, '__dataclass_fields__') else vars(train_args),
+        'metrics': {
+            'train': train_metrics,
+            'validation': val_metrics,
+            'test': test_metrics
+        }
+    }
+
+    # Save JSON file
+    json_path = os.path.join(model_save_dir, f"{model_name}.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(save_data, f, indent=4, ensure_ascii=False)
+    print(f"[✓] Configuration and metrics saved to {json_path}")
+
+    # Save model weights
+    model_path = os.path.join(model_save_dir, f"{model_name}.pt")
+    torch.save({
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+    }, model_path)
+    print(f"[✓] Model weights saved to {model_path}")
+
+
 # ============================================================================
 # Early Stopping
 # ============================================================================
