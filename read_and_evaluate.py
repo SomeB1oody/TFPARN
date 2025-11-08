@@ -64,11 +64,7 @@ class EvaluationConfig:
             data_dir="H:/true_tone5/data/flac_D/",
             protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
         ),
-        DatasetConfig(
-            name="Eval",
-            data_dir="H:/true_tone5/data/flac_E/",
-            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
-        ),
+
     ])
 
     # Audio processing parameters
@@ -252,6 +248,8 @@ def create_dataloader(
     data_args.train_shuffle = False  # No shuffle for evaluation
     data_args.seed = config.seed
     data_args.use_rawboost = False  # No augmentation for evaluation
+    data_args.use_tta = True  # Enable TTA for evaluation
+    data_args.tta_num_crops = 5  # Number of crops per sample
 
     # Load data (we use dev_loader as it's typically used for validation/eval)
     _, loader, _, _ = make_loaders(data_args)
@@ -267,7 +265,8 @@ def evaluate_dataset(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
     device: torch.device,
-    dataset_name: str = "Dataset"
+    dataset_name: str = "Dataset",
+    use_tta: bool = True
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Evaluate model on a dataset and return logits and labels
@@ -277,6 +276,7 @@ def evaluate_dataset(
         dataloader: DataLoader for the dataset
         device: Device to evaluate on
         dataset_name: Name of the dataset for display
+        use_tta: Whether TTA is enabled (affects batch shape)
 
     Returns:
         (logits, labels) as numpy arrays
@@ -285,7 +285,7 @@ def evaluate_dataset(
     all_logits = []
     all_labels = []
 
-    print(f"\n[Evaluating] {dataset_name}")
+    print(f"\n[Evaluating] {dataset_name} (TTA: {'Enabled' if use_tta else 'Disabled'})")
     with torch.no_grad():
         pbar = tqdm(dataloader, desc=f"Evaluating {dataset_name}", dynamic_ncols=True)
         for batch in pbar:
@@ -293,8 +293,25 @@ def evaluate_dataset(
             lengths = batch['lengths'].to(device)
             labels = batch['labels'].to(device)
 
-            # Forward pass
-            logits = model(waveforms, lengths)
+            if use_tta:
+                # TTA enabled: waveforms shape [B, num_crops, C, T]
+                B, num_crops, C, T = waveforms.shape
+
+                # Reshape to [B*num_crops, C, T] for batch processing
+                waveforms_flat = waveforms.view(B * num_crops, C, T)
+                lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
+
+                # Forward pass on all crops
+                logits_flat = model(waveforms_flat, lengths_flat)  # [B*num_crops, 2]
+
+                # Reshape back to [B, num_crops, 2]
+                logits_crops = logits_flat.view(B, num_crops, 2)
+
+                # Average logits across crops
+                logits = logits_crops.mean(dim=1)  # [B, 2]
+            else:
+                # Normal inference: waveforms shape [B, C, T]
+                logits = model(waveforms, lengths)
 
             # Collect results
             all_logits.append(logits.cpu().numpy())
@@ -516,8 +533,8 @@ def main():
         print(f"Evaluating: {dataset_config.name}")
         print(f"{'='*80}")
 
-        # Evaluate dataset
-        logits, labels = evaluate_dataset(model, dataloader, device, dataset_config.name)
+        # Evaluate dataset (with TTA enabled)
+        logits, labels = evaluate_dataset(model, dataloader, device, dataset_config.name, use_tta=True)
 
         # Compute initial metrics (without calibration)
         print(f"\n[Computing] Initial metrics for {dataset_config.name}")

@@ -58,6 +58,10 @@ class DefaultArgs:
     use_rawboost: bool = True  # Enable RawBoost data augmentation for training
     rawboost_prob: float = 0.5  # Probability of applying RawBoost
 
+    # TTA parameters
+    use_tta: bool = True  # Enable Test-Time Augmentation for dev/eval
+    tta_num_crops: int = 5  # Number of crops per sample for TTA
+
 
 def get_default_args() -> DefaultArgs:
     """
@@ -463,6 +467,186 @@ class ASV5Dataset(Dataset):
 
             return repeated[:, start:start + target_T]
 
+    def generate_tta_crops(self, waveform: torch.Tensor, num_crops: int = 5) -> torch.Tensor:
+        """
+        Generate multiple crops for Test-Time Augmentation
+
+        Strategy:
+        - If audio is longer than target: generate overlapping sliding windows (50% overlap)
+        - If audio is shorter than target: repeat with different random starting points
+
+        Args:
+            waveform: [C, T]
+            num_crops: Number of crops to generate (default 5)
+
+        Returns:
+            Crops: [num_crops, C, target_length]
+        """
+        C, T = waveform.shape
+        target_T = self.target_length
+        crops = []
+
+        if T >= target_T:
+            # Longer than target: sliding windows with 50% overlap
+            stride = target_T // 2
+            max_start = T - target_T
+
+            if max_start == 0:
+                # Exact length: just use it multiple times (no variance)
+                for _ in range(num_crops):
+                    crops.append(waveform[:, :target_T])
+            else:
+                # Generate evenly spaced starting points
+                step = max(1, max_start // (num_crops - 1))
+                starts = [min(i * step, max_start) for i in range(num_crops)]
+
+                for start in starts:
+                    crops.append(waveform[:, start:start + target_T])
+        else:
+            # Shorter than target: repeat and use different starting points
+            num_repeats = (target_T // T) + 1
+            repeated = waveform.repeat(1, num_repeats)  # [C, repeated_T]
+
+            max_start = repeated.shape[1] - target_T
+            if max_start == 0:
+                # Even after repeating, exact length
+                for _ in range(num_crops):
+                    crops.append(repeated[:, :target_T])
+            else:
+                # Generate evenly spaced starting points
+                step = max(1, max_start // (num_crops - 1))
+                starts = [min(i * step, max_start) for i in range(num_crops)]
+
+                for start in starts:
+                    crops.append(repeated[:, start:start + target_T])
+
+        # Stack crops: [num_crops, C, target_T]
+        return torch.stack(crops, dim=0)
+
+
+# ============================================================================
+# TTA Dataset Wrapper
+# ============================================================================
+
+class TTADataset(torch.utils.data.Dataset):
+    """
+    Test-Time Augmentation Dataset Wrapper
+
+    Wraps an existing ASV5Dataset and generates multiple crops per sample
+    for variance reduction during inference.
+    """
+
+    def __init__(self, base_dataset: ASV5Dataset, num_crops: int = 5):
+        """
+        Args:
+            base_dataset: ASV5Dataset instance
+            num_crops: Number of crops to generate per sample
+        """
+        self.base_dataset = base_dataset
+        self.num_crops = num_crops
+        print(f"\n[TTA Dataset] Wrapping dataset with {num_crops} crops per sample")
+
+    def __len__(self) -> int:
+        return len(self.base_dataset)
+
+    def __getitem__(self, index: int) -> Dict[str, Any]:
+        """
+        Get item with TTA crops
+
+        Returns:
+            Dict with keys:
+                - waveforms: [num_crops, C, T] multiple crops
+                - length: int (all crops have same length)
+                - label: int
+                - speaker_id: str
+                - attack_label: str
+                - audio_path: str
+        """
+        # Get base item (with single center crop)
+        item = self.base_dataset.items[index]
+        filename = item['flac_file']
+        label = item['label']
+        audio_path = self.base_dataset.data_dir / filename
+
+        try:
+            # Load and preprocess audio (same as base dataset)
+            import soundfile as sf
+            import torchaudio
+
+            audio_data, sr = sf.read(str(audio_path), dtype='float32')
+
+            if audio_data.ndim == 1:
+                waveform = torch.from_numpy(audio_data).unsqueeze(0)
+            else:
+                waveform = torch.from_numpy(audio_data).T
+
+            if sr != self.base_dataset.sample_rate:
+                resampler = torchaudio.transforms.Resample(
+                    orig_freq=sr,
+                    new_freq=self.base_dataset.sample_rate
+                )
+                waveform = resampler(waveform)
+
+            if self.base_dataset.mono and waveform.shape[0] > 1:
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
+
+            if self.base_dataset.normalize:
+                max_val = torch.abs(waveform).max()
+                if max_val > 0:
+                    waveform = waveform / max_val
+
+            # Generate multiple crops using TTA
+            waveforms = self.base_dataset.generate_tta_crops(waveform, self.num_crops)
+
+            return {
+                "waveforms": waveforms,  # [num_crops, C, T]
+                "length": waveforms.shape[-1],
+                "label": label,
+                "speaker_id": item['speaker_id'],
+                "attack_label": item['attack_label'],
+                "audio_path": str(audio_path)
+            }
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Failed to load audio for TTA:\n"
+                f"  Path: {audio_path}\n"
+                f"  Error: {str(e)}"
+            ) from e
+
+
+def collate_fn_tta(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Collate function for TTA batches
+
+    Args:
+        batch: List of dicts from TTADataset.__getitem__
+
+    Returns:
+        Dict with:
+            waveforms: FloatTensor [B, num_crops, C, T]
+            lengths: LongTensor [B]
+            labels: LongTensor [B]
+            speaker_ids: List[str]
+            attack_labels: List[str]
+            audio_paths: List[str]
+    """
+    waveforms = torch.stack([item["waveforms"] for item in batch])  # [B, num_crops, C, T]
+    lengths = torch.tensor([item["length"] for item in batch], dtype=torch.long)
+    labels = torch.tensor([item["label"] for item in batch], dtype=torch.long)
+    speaker_ids = [item["speaker_id"] for item in batch]
+    attack_labels = [item["attack_label"] for item in batch]
+    audio_paths = [item["audio_path"] for item in batch]
+
+    return {
+        "waveforms": waveforms,
+        "lengths": lengths,
+        "labels": labels,
+        "speaker_ids": speaker_ids,
+        "attack_labels": attack_labels,
+        "audio_paths": audio_paths
+    }
+
 
 # ============================================================================
 # Collate Function
@@ -588,7 +772,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         rawboost_prob=args.rawboost_prob
     )
 
-    dev_dataset = ASV5Dataset(
+    dev_base_dataset = ASV5Dataset(
         data_dir=args.dev_data_dir,
         items=dev_items,
         sample_rate=args.sample_rate,
@@ -601,7 +785,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         rawboost_prob=0.0
     )
 
-    eval_dataset = ASV5Dataset(
+    eval_base_dataset = ASV5Dataset(
         data_dir=args.eval_data_dir,
         items=eval_items,
         sample_rate=args.sample_rate,
@@ -613,6 +797,21 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         use_rawboost=False,  # No augmentation for eval
         rawboost_prob=0.0
     )
+
+    # Wrap dev/eval with TTA if enabled
+    if args.use_tta:
+        print(f"\n[TTA] Test-Time Augmentation ENABLED")
+        print(f"  - Number of crops per sample: {args.tta_num_crops}")
+        dev_dataset = TTADataset(dev_base_dataset, num_crops=args.tta_num_crops)
+        eval_dataset = TTADataset(eval_base_dataset, num_crops=args.tta_num_crops)
+        dev_collate_fn = collate_fn_tta
+        eval_collate_fn = collate_fn_tta
+    else:
+        print(f"\n[TTA] Test-Time Augmentation DISABLED")
+        dev_dataset = dev_base_dataset
+        eval_dataset = eval_base_dataset
+        dev_collate_fn = collate_fn
+        eval_collate_fn = collate_fn
 
     # Calculate class weights
     print(f"\n[Step 3/4] Calculating class weights from training set")
@@ -648,7 +847,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
         pin_memory=args.pin_memory,
         persistent_workers=args.persistent_workers if args.num_workers > 0 else False,
-        collate_fn=collate_fn
+        collate_fn=dev_collate_fn
     )
     print(f"  ✓ Dev DataLoader ready: {len(dev_loader)} batches")
 
@@ -660,7 +859,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
         pin_memory=args.pin_memory,
         persistent_workers=args.persistent_workers if args.num_workers > 0 else False,
-        collate_fn=collate_fn
+        collate_fn=eval_collate_fn
     )
     print(f"  ✓ Eval DataLoader ready: {len(eval_loader)} batches")
 
@@ -672,6 +871,8 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
     print(f"  - Dev: {len(dev_dataset)} samples, {len(dev_loader)} batches")
     print(f"  - Eval: {len(eval_dataset)} samples, {len(eval_loader)} batches")
     print(f"  - Class weights: spoof={class_weights[0]:.4f}, bonafide={class_weights[1]:.4f}")
+    if args.use_tta:
+        print(f"  - TTA: {args.tta_num_crops} crops per sample")
     print("="*80 + "\n")
 
     return train_loader, dev_loader, eval_loader, class_weights

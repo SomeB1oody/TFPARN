@@ -161,7 +161,8 @@ def validate(
     val_loader: torch.utils.data.DataLoader,
     criterion: nn.Module,
     device: torch.device,
-    epoch: int
+    epoch: int,
+    use_tta: bool = False
 ) -> Tuple[float, Dict[str, float]]:
     """
     Validate model
@@ -172,6 +173,7 @@ def validate(
         criterion: Loss function
         device: Device to validate on
         epoch: Current epoch number
+        use_tta: Whether TTA is enabled (affects batch shape)
 
     Returns:
         (average_loss, metrics)
@@ -188,8 +190,25 @@ def validate(
             lengths = batch['lengths'].to(device)
             labels = batch['labels'].to(device)
 
-            # Forward pass
-            logits = model(waveforms, lengths)
+            if use_tta:
+                # TTA enabled: waveforms shape [B, num_crops, C, T]
+                B, num_crops, C, T = waveforms.shape
+
+                # Reshape to [B*num_crops, C, T] for batch processing
+                waveforms_flat = waveforms.view(B * num_crops, C, T)
+                lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
+
+                # Forward pass on all crops
+                logits_flat = model(waveforms_flat, lengths_flat)  # [B*num_crops, 2]
+
+                # Reshape back to [B, num_crops, 2]
+                logits_crops = logits_flat.view(B, num_crops, 2)
+
+                # Average logits across crops
+                logits = logits_crops.mean(dim=1)  # [B, 2]
+            else:
+                # Normal inference: waveforms shape [B, C, T]
+                logits = model(waveforms, lengths)
 
             # Compute loss
             loss = criterion(logits, labels)
@@ -214,7 +233,8 @@ def validate(
 def evaluate(
     model: nn.Module,
     eval_loader: torch.utils.data.DataLoader,
-    device: torch.device
+    device: torch.device,
+    use_tta: bool = False
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     Evaluate model on test set
@@ -223,6 +243,7 @@ def evaluate(
         model: Model to evaluate
         eval_loader: Evaluation data loader
         device: Device to evaluate on
+        use_tta: Whether TTA is enabled (affects batch shape)
 
     Returns:
         (all_logits, all_labels)
@@ -238,8 +259,25 @@ def evaluate(
             lengths = batch['lengths'].to(device)
             labels = batch['labels'].to(device)
 
-            # Forward pass
-            logits = model(waveforms, lengths)
+            if use_tta:
+                # TTA enabled: waveforms shape [B, num_crops, C, T]
+                B, num_crops, C, T = waveforms.shape
+
+                # Reshape to [B*num_crops, C, T] for batch processing
+                waveforms_flat = waveforms.view(B * num_crops, C, T)
+                lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
+
+                # Forward pass on all crops
+                logits_flat = model(waveforms_flat, lengths_flat)  # [B*num_crops, 2]
+
+                # Reshape back to [B, num_crops, 2]
+                logits_crops = logits_flat.view(B, num_crops, 2)
+
+                # Average logits across crops
+                logits = logits_crops.mean(dim=1)  # [B, 2]
+            else:
+                # Normal inference: waveforms shape [B, C, T]
+                logits = model(waveforms, lengths)
 
             # Collect results
             all_logits.append(logits.cpu())
@@ -299,6 +337,8 @@ def main():
     data_args.persistent_workers = args.persistent_workers
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
+    data_args.use_tta = True  # Enable TTA for dev/eval
+    data_args.tta_num_crops = 5  # Number of crops per sample
 
     # Load data
     train_loader, dev_loader, eval_loader, class_weights = make_loaders(data_args)
@@ -447,9 +487,9 @@ def main():
         print(f"\nTrain Loss: {train_loss:.4f}")
         print_metrics(train_metrics, prefix="  [TRAIN] ")
 
-        # Validate
+        # Validate (with TTA)
         val_loss, val_metrics = validate(
-            model, dev_loader, criterion, device, epoch
+            model, dev_loader, criterion, device, epoch, use_tta=True
         )
 
         print(f"\nValidation Loss: {val_loss:.4f}")
@@ -514,7 +554,7 @@ def main():
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"[✓] Loaded best model from epoch {checkpoint['epoch']}")
 
-    eval_logits, eval_labels = evaluate(model, eval_loader, device)
+    eval_logits, eval_labels = evaluate(model, eval_loader, device, use_tta=True)
 
     print("\nComputing final metrics...")
     eval_metrics = compute_all_metrics(eval_logits, eval_labels)
