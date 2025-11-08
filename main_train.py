@@ -61,8 +61,8 @@ class ModelArgs:
     activation: str = "relu"
 
     # Training Hyperparameters
-    max_epochs: int = 120
-    learning_rate: float = 1e-4
+    max_epochs: int = 200
+    learning_rate: float = 1e-5
     weight_decay: float = 1e-5
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
