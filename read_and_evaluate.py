@@ -528,9 +528,14 @@ def main():
     print("-"*80)
     print_metrics(final_metrics, prefix="  ")
 
-    # Print detailed classification report
+    # Print detailed classification report using calibrated scores
+    # Convert corrected scores to logits format for classification report
+    eps = 1e-10
+    corrected_scores_clipped = np.clip(corrected_eval_scores, eps, 1 - eps)
+    calibrated_logits = np.stack([np.log(1 - corrected_scores_clipped), np.log(corrected_scores_clipped)], axis=1)
+
     print_classification_report_wrapper(
-        torch.from_numpy(eval_logits),
+        torch.from_numpy(calibrated_logits),
         torch.from_numpy(eval_labels),
         target_names=['spoof (AI)', 'bonafide (human)']
     )
