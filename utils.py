@@ -325,7 +325,7 @@ def compute_min_dcf(
     scores: np.ndarray,
     labels: np.ndarray,
     c_miss: float = 1.0,
-    c_fa: float = 1.0,
+    c_fa: float = 10.0,
     p_target: float = 0.05
 ) -> Tuple[float, float]:
     """

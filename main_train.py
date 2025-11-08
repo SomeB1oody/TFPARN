@@ -38,6 +38,7 @@ class ModelArgs:
     train_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv"
     dev_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
     eval_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
+
     sample_rate: int = 16000
     duration_sec: float = 4.0
     mono: bool = True
@@ -57,13 +58,13 @@ class ModelArgs:
     nhead: int = 8
     num_layers: int = 6
     dim_feedforward: int = 1024
-    model_dropout: float = 0.3
+    model_dropout: float = 0.5
     activation: str = "relu"
 
     # Training Hyperparameters
-    max_epochs: int = 200
-    learning_rate: float = 1e-5
-    weight_decay: float = 1e-5
+    max_epochs: int = 50
+    learning_rate: float = 1e-4
+    weight_decay: float = 1e-4
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
     scheduler_warmup_epochs: int = 5
@@ -76,10 +77,10 @@ class ModelArgs:
     # Pairwise AUC/pAUC Loss
     enable_pairwise: bool = True  # Whether to enable pairwise loss
     pairwise_margin: float = 1.0  # Margin for pairwise ranking loss
-    pairwise_weight: float = 0.3  # Weight for pairwise loss term
+    pairwise_weight: float = 0.5  # Weight for pairwise loss term
 
     # Early Stopping
-    early_stopping_patience: int = 18
+    early_stopping_patience: int = 8
     early_stopping_metric: str = "eer"  # Options: 'f1_macro', 'accuracy', 'recall_macro', 'eer', 'auc_roc'
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 

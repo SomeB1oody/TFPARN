@@ -166,7 +166,7 @@ class SpeechTransformerClassifier(nn.Module):
         )
 
         self._reset_parameters()
-        print(f" Model initialized successfully")
+        print(f"[✓] Model initialized successfully")
 
     def _reset_parameters(self):
         """Initialize parameters"""

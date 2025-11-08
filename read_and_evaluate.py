@@ -69,7 +69,7 @@ class EvaluationConfig:
 
     # Audio processing parameters
     sample_rate: int = 16000
-    duration_sec: float = 4.0
+    duration_sec: float = 2.0
     mono: bool = True
     normalize: bool = True
 
