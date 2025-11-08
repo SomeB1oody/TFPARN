@@ -1,9 +1,15 @@
 """
 Model Evaluation Script for ASVspoof5 Competition
-Handles: loading trained model, evaluating on dev and eval sets, computing all metrics with calibration
+Handles: loading trained model, evaluating on multiple datasets, computing all metrics with calibration
+Supports flexible evaluation on any number of datasets (train/dev/eval)
+
+Calibration logic:
+- Dataset named "Dev" is automatically used as calibration reference
+- Dataset named "Eval" automatically gets calibration applied (using Dev)
+- Other datasets (e.g., "Train") do not get calibration unless explicitly enabled
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Tuple, Dict, List
 import torch
 import torch.nn as nn
@@ -25,17 +31,45 @@ from utils import (
 # ============================================================================
 
 @dataclass
+class DatasetConfig:
+    """Configuration for a single dataset"""
+    name: str  # Name of the dataset (e.g., "Train", "Dev", "Eval")
+    data_dir: str  # Path to audio files
+    protocol_dir: str  # Path to protocol file
+    apply_calibration: bool = False  # Whether to apply Platt calibration to this dataset
+
+
+@dataclass
 class EvaluationConfig:
     """
     Evaluation configuration parameters
+
+    Calibration logic (automatic based on dataset name):
+    - "Dev" dataset: Used as calibration reference, no calibration applied to itself
+    - "Eval" dataset: Automatically has apply_calibration=True (uses Dev as reference)
+    - Other datasets: No calibration by default (can be manually enabled)
     """
     # Model path
-    # IMPORTANT: Modify this to your model file path
-    model_path: str = "H:/true_tone3/ce/best_model_eer_0.3947.pt"
+    model_path: str = "./ce/best_model_eer_0.3947.pt"
 
-    # Data paths (data and protocol order must correspond)
-    data_dirs: List[str] = None
-    protocol_dirs: List[str] = None
+    # Dataset configurations
+    datasets: List[DatasetConfig] = field(default_factory=lambda: [
+        DatasetConfig(
+            name="Train",
+            data_dir="H:/true_tone5/data/flac_T/",
+            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv"
+        ),
+        DatasetConfig(
+            name="Dev",
+            data_dir="H:/true_tone5/data/flac_D/",
+            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
+        ),
+        DatasetConfig(
+            name="Eval",
+            data_dir="H:/true_tone5/data/flac_E/",
+            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
+        ),
+    ])
 
     # Audio processing parameters
     sample_rate: int = 16000
@@ -44,7 +78,7 @@ class EvaluationConfig:
     normalize: bool = True
 
     # Evaluation parameters
-    batch_size: int = 96  # Batch size
+    batch_size: int = 32  # Batch size
     num_workers: int = 8  # Number of data loading workers
     prefetch_factor: int = 2
     pin_memory: bool = True
@@ -64,15 +98,24 @@ class EvaluationConfig:
     # Miscellaneous
     seed: int = 42  # Random seed
 
+    # Whether to apply prior correction (only applied when calibration is enabled)
+    apply_prior_correction: bool = True
+
     def __post_init__(self):
-        """Initialize default data and protocol directories"""
-        if self.data_dirs is None:
-            self.data_dirs = ["H:/true_tone5/data/flac_D/", "H:/true_tone5/data/flac_E/"]
-        if self.protocol_dirs is None:
-            self.protocol_dirs = [
-                "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv",
-                "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
-            ]
+        """
+        Automatically configure calibration based on dataset names
+        - "Dev": No calibration (used as reference)
+        - "Eval": Enable calibration automatically
+        - Others: Keep default (False)
+        """
+        for dataset in self.datasets:
+            if dataset.name == "Eval":
+                # Automatically enable calibration for Eval
+                dataset.apply_calibration = True
+            elif dataset.name == "Dev":
+                # Dev is calibration reference, never apply calibration to itself
+                dataset.apply_calibration = False
+            # Other datasets keep their default apply_calibration value
 
 
 # ============================================================================
@@ -165,6 +208,58 @@ def load_model_weights(
 
 
 # ============================================================================
+# Data Loading
+# ============================================================================
+
+def create_dataloader(
+    dataset_config: DatasetConfig,
+    config: EvaluationConfig
+) -> torch.utils.data.DataLoader:
+    """
+    Create a dataloader for a single dataset
+
+    Args:
+        dataset_config: Configuration for the dataset
+        config: Main evaluation configuration
+
+    Returns:
+        DataLoader for the dataset
+    """
+    print(f"\n[Loading] Dataset: {dataset_config.name}")
+    print(f"  - Data dir: {dataset_config.data_dir}")
+    print(f"  - Protocol: {dataset_config.protocol_dir}")
+    print(f"  - Apply calibration: {dataset_config.apply_calibration}")
+
+    # Create data processing args
+    data_args = DataProcessArgs()
+    # Set all three dirs to the same path (make_loaders expects all three)
+    data_args.train_data_dir = dataset_config.data_dir
+    data_args.dev_data_dir = dataset_config.data_dir
+    data_args.eval_data_dir = dataset_config.data_dir
+    data_args.train_protocol_dir = dataset_config.protocol_dir
+    data_args.dev_protocol_dir = dataset_config.protocol_dir
+    data_args.eval_protocol_dir = dataset_config.protocol_dir
+
+    data_args.sample_rate = config.sample_rate
+    data_args.duration_sec = config.duration_sec
+    data_args.mono = config.mono
+    data_args.normalize = config.normalize
+    data_args.batch_size = config.batch_size
+    data_args.num_workers = config.num_workers
+    data_args.prefetch_factor = config.prefetch_factor
+    data_args.pin_memory = config.pin_memory
+    data_args.persistent_workers = config.persistent_workers
+    data_args.train_shuffle = False  # No shuffle for evaluation
+    data_args.seed = config.seed
+    data_args.use_rawboost = False  # No augmentation for evaluation
+
+    # Load data (we use dev_loader as it's typically used for validation/eval)
+    _, loader, _, _ = make_loaders(data_args)
+
+    return loader
+
+
+# ============================================================================
 # Evaluation Functions
 # ============================================================================
 
@@ -215,71 +310,65 @@ def evaluate_dataset(
 
 
 def apply_platt_calibration(
-    val_logits: np.ndarray,
-    val_labels: np.ndarray,
-    eval_logits: np.ndarray
+    cal_logits: np.ndarray,
+    cal_labels: np.ndarray,
+    test_logits: np.ndarray
 ) -> Tuple[np.ndarray, LogisticRegression]:
     """
-    Apply Platt calibration on validation set and transform eval set
-    Platt calibration: trains a logistic regression on validation scores
+    Apply Platt calibration on calibration set and transform test set
+    Platt calibration: trains a logistic regression on calibration scores
 
     Args:
-        val_logits: Validation logits [N_val, 2]
-        val_labels: Validation labels [N_val]
-        eval_logits: Evaluation logits [N_eval, 2]
+        cal_logits: Calibration logits [N_cal, 2]
+        cal_labels: Calibration labels [N_cal]
+        test_logits: Test logits [N_test, 2]
 
     Returns:
-        (calibrated_eval_scores, calibrator): Calibrated scores and the calibrator model
+        (calibrated_test_scores, calibrator): Calibrated scores and the calibrator model
     """
-    print("\n[Calibration] Applying Platt calibration")
-
     # Extract bonafide scores (logit for class 1)
-    val_scores = val_logits[:, 1] - val_logits[:, 0]  # Log odds
-    eval_scores = eval_logits[:, 1] - eval_logits[:, 0]
+    cal_scores = cal_logits[:, 1] - cal_logits[:, 0]  # Log odds
+    test_scores = test_logits[:, 1] - test_logits[:, 0]
 
-    # Fit logistic regression on validation set
+    # Fit logistic regression on calibration set
     # This learns: calibrated_score = a * score + b
     calibrator = LogisticRegression(solver='lbfgs', max_iter=1000)
-    calibrator.fit(val_scores.reshape(-1, 1), val_labels)
+    calibrator.fit(cal_scores.reshape(-1, 1), cal_labels)
 
     print(f"  - Calibration parameters: a={calibrator.coef_[0][0]:.4f}, b={calibrator.intercept_[0]:.4f}")
 
-    # Get calibrated probabilities for eval set
-    calibrated_probs = calibrator.predict_proba(eval_scores.reshape(-1, 1))[:, 1]
-
-    print(f"[SUCCESS] Platt calibration complete")
+    # Get calibrated probabilities for test set
+    calibrated_probs = calibrator.predict_proba(test_scores.reshape(-1, 1))[:, 1]
 
     return calibrated_probs, calibrator
 
 
 def apply_prior_correction(
-    val_labels: np.ndarray,
-    eval_labels: np.ndarray,
+    cal_labels: np.ndarray,
+    test_labels: np.ndarray,
     calibrated_scores: np.ndarray
 ) -> np.ndarray:
     """
     Apply prior correction based on label distribution difference
-    Uses log-odds shift: corrected_logit = logit + log(P_eval/P_val * (1-P_val)/(1-P_eval))
+    Uses log-odds shift: corrected_logit = logit + log(P_test/P_cal * (1-P_cal)/(1-P_test))
 
     Args:
-        val_labels: Validation labels [N_val]
-        eval_labels: Evaluation labels [N_eval]
-        calibrated_scores: Calibrated probability scores [N_eval]
+        cal_labels: Calibration labels [N_cal]
+        test_labels: Test labels [N_test]
+        calibrated_scores: Calibrated probability scores [N_test]
 
     Returns:
-        corrected_scores: Prior-corrected probability scores [N_eval]
+        corrected_scores: Prior-corrected probability scores [N_test]
     """
-    print("\n[Prior Correction] Applying prior correction")
-
     # Compute class priors (proportion of bonafide samples)
-    prior_val = np.mean(val_labels == 1)
-    prior_eval = np.mean(eval_labels == 1)
+    prior_cal = np.mean(cal_labels == 1)
+    prior_test = np.mean(test_labels == 1)
 
-    print(f"  - Validation prior P(bonafide): {prior_val:.4f}")
-    print(f"  - Evaluation prior P(bonafide): {prior_eval:.4f}")
+    print(f"  - Calibration set prior P(bonafide): {prior_cal:.4f}")
+    print(f"  - Test set prior P(bonafide): {prior_test:.4f}")
 
     # Compute log-odds shift
-    shift = compute_prior_log_odds_shift(prior_val, prior_eval)
+    shift = compute_prior_log_odds_shift(prior_cal, prior_test)
     print(f"  - Log-odds shift: {shift:.4f}")
 
     # Convert probabilities to log-odds, apply shift, convert back
@@ -291,29 +380,23 @@ def apply_prior_correction(
     corrected_logits = logits + shift
     corrected_scores = 1 / (1 + np.exp(-corrected_logits))
 
-    print(f"[SUCCESS] Prior correction complete")
-
     return corrected_scores
 
 
-def compute_llr_and_metrics(
+def compute_metrics_from_scores(
     scores: np.ndarray,
-    labels: np.ndarray,
-    dataset_name: str = "Dataset"
+    labels: np.ndarray
 ) -> Dict[str, float]:
     """
-    Compute LLR-based metrics (CLLR) and all other metrics
+    Compute all metrics from probability scores
 
     Args:
         scores: Probability scores (higher = more likely bonafide) [N]
         labels: Ground truth labels (0=spoof, 1=bonafide) [N]
-        dataset_name: Name of dataset for display
 
     Returns:
         Dictionary containing all metrics including CLLR
     """
-    print(f"\n[Computing Metrics] {dataset_name}")
-
     # Convert scores to logits for compute_all_metrics
     # Reconstruct logits from probabilities
     eps = 1e-10
@@ -329,8 +412,6 @@ def compute_llr_and_metrics(
     cllr = compute_cllr(scores, labels)
     metrics['cllr'] = cllr
 
-    print(f"[SUCCESS] Metrics computed for {dataset_name}")
-
     return metrics
 
 
@@ -341,7 +422,7 @@ def compute_llr_and_metrics(
 def main():
     """
     Main evaluation function
-    Loads model, evaluates on dev and eval sets with calibration and prior correction
+    Loads model, evaluates on multiple datasets with optional calibration and prior correction
     """
     print("\n" + "="*80)
     print("ASVSPOOF5 MODEL EVALUATION")
@@ -349,6 +430,26 @@ def main():
 
     # Initialize configuration
     config = EvaluationConfig()
+
+    print(f"\nConfiguration:")
+    print(f"  - Model: {config.model_path}")
+    print(f"  - Number of datasets: {len(config.datasets)}")
+
+    # Find Dev dataset for calibration
+    dev_dataset_idx = None
+    for i, ds in enumerate(config.datasets):
+        cal_status = "YES" if ds.apply_calibration else "NO"
+        print(f"    [{i}] {ds.name} (calibration: {cal_status})")
+        if ds.name == "Dev":
+            dev_dataset_idx = i
+
+    if dev_dataset_idx is None:
+        print(f"\n[WARNING] No 'Dev' dataset found! Calibration will not be available.")
+        print(f"  Please add a dataset named 'Dev' to enable calibration.")
+    else:
+        print(f"\n  - Calibration reference: Dev (index {dev_dataset_idx})")
+
+    print(f"  - Apply prior correction: {config.apply_prior_correction}")
 
     # Set random seed for reproducibility
     set_seed(config.seed)
@@ -364,57 +465,13 @@ def main():
     print("STEP 1: LOADING DATA")
     print("="*80)
 
-    # Create data processing args for validation set
-    val_data_args = DataProcessArgs()
-    val_data_args.train_data_dir = config.data_dirs[0]  # Use dev as validation
-    val_data_args.dev_data_dir = config.data_dirs[0]
-    val_data_args.eval_data_dir = config.data_dirs[0]
-    val_data_args.train_protocol_dir = config.protocol_dirs[0]
-    val_data_args.dev_protocol_dir = config.protocol_dirs[0]
-    val_data_args.eval_protocol_dir = config.protocol_dirs[0]
-    val_data_args.sample_rate = config.sample_rate
-    val_data_args.duration_sec = config.duration_sec
-    val_data_args.mono = config.mono
-    val_data_args.normalize = config.normalize
-    val_data_args.batch_size = config.batch_size
-    val_data_args.num_workers = config.num_workers
-    val_data_args.prefetch_factor = config.prefetch_factor
-    val_data_args.pin_memory = config.pin_memory
-    val_data_args.persistent_workers = config.persistent_workers
-    val_data_args.train_shuffle = False
-    val_data_args.seed = config.seed
-    val_data_args.use_rawboost = False  # No augmentation for evaluation
+    # Create dataloaders for all datasets
+    dataloaders = []
+    for dataset_config in config.datasets:
+        loader = create_dataloader(dataset_config, config)
+        dataloaders.append(loader)
 
-    # Load validation data (dev set)
-    print("\n[Loading] Validation set (Dev)")
-    _, val_loader, _, _ = make_loaders(val_data_args)
-
-    # Create data processing args for evaluation set
-    eval_data_args = DataProcessArgs()
-    eval_data_args.train_data_dir = config.data_dirs[1]  # Use eval set
-    eval_data_args.dev_data_dir = config.data_dirs[1]
-    eval_data_args.eval_data_dir = config.data_dirs[1]
-    eval_data_args.train_protocol_dir = config.protocol_dirs[1]
-    eval_data_args.dev_protocol_dir = config.protocol_dirs[1]
-    eval_data_args.eval_protocol_dir = config.protocol_dirs[1]
-    eval_data_args.sample_rate = config.sample_rate
-    eval_data_args.duration_sec = config.duration_sec
-    eval_data_args.mono = config.mono
-    eval_data_args.normalize = config.normalize
-    eval_data_args.batch_size = config.batch_size
-    eval_data_args.num_workers = config.num_workers
-    eval_data_args.prefetch_factor = config.prefetch_factor
-    eval_data_args.pin_memory = config.pin_memory
-    eval_data_args.persistent_workers = config.persistent_workers
-    eval_data_args.train_shuffle = False
-    eval_data_args.seed = config.seed
-    eval_data_args.use_rawboost = False
-
-    # Load evaluation data
-    print("\n[Loading] Evaluation set (Eval)")
-    _, eval_loader, _, _ = make_loaders(eval_data_args)
-
-    print("\n[SUCCESS] Data loading complete")
+    print(f"\n[SUCCESS] Loaded {len(dataloaders)} datasets")
 
     # ========================================================================
     # Step 2: Create and Load Model
@@ -445,100 +502,147 @@ def main():
     model = model.to(device)
 
     # ========================================================================
-    # Step 3: Evaluate on Validation Set (Dev)
+    # Step 3: Evaluate on All Datasets
     # ========================================================================
     print("\n" + "="*80)
-    print("STEP 3: EVALUATE ON VALIDATION SET")
+    print("STEP 3: EVALUATE ON ALL DATASETS")
     print("="*80)
 
-    val_logits, val_labels = evaluate_dataset(model, val_loader, device, "Validation (Dev)")
+    # Store results for all datasets
+    all_results = {}
 
-    # Compute initial metrics on validation set
-    print("\n[Computing] Initial validation metrics (before calibration)")
-    val_metrics_initial = compute_all_metrics(torch.from_numpy(val_logits), torch.from_numpy(val_labels))
-    print_metrics(val_metrics_initial, prefix="  [VAL INITIAL] ")
+    for i, (dataset_config, dataloader) in enumerate(zip(config.datasets, dataloaders)):
+        print(f"\n{'='*80}")
+        print(f"Evaluating: {dataset_config.name}")
+        print(f"{'='*80}")
 
-    # ========================================================================
-    # Step 4: Evaluate on Evaluation Set (Eval)
-    # ========================================================================
-    print("\n" + "="*80)
-    print("STEP 4: EVALUATE ON EVALUATION SET")
-    print("="*80)
+        # Evaluate dataset
+        logits, labels = evaluate_dataset(model, dataloader, device, dataset_config.name)
 
-    eval_logits, eval_labels = evaluate_dataset(model, eval_loader, device, "Evaluation (Eval)")
+        # Compute initial metrics (without calibration)
+        print(f"\n[Computing] Initial metrics for {dataset_config.name}")
+        probs = np.exp(logits) / np.exp(logits).sum(axis=1, keepdims=True)
+        bonafide_probs = probs[:, 1]
+        initial_metrics = compute_metrics_from_scores(bonafide_probs, labels)
 
-    # Compute initial metrics on evaluation set
-    print("\n[Computing] Initial evaluation metrics (before calibration)")
-    eval_metrics_initial = compute_all_metrics(torch.from_numpy(eval_logits), torch.from_numpy(eval_labels))
-    print_metrics(eval_metrics_initial, prefix="  [EVAL INITIAL] ")
-
-    # ========================================================================
-    # Step 5: Platt Calibration
-    # ========================================================================
-    print("\n" + "="*80)
-    print("STEP 5: PLATT CALIBRATION")
-    print("="*80)
-
-    # Apply Platt calibration: train on val, apply to eval
-    calibrated_eval_scores, calibrator = apply_platt_calibration(
-        val_logits, val_labels, eval_logits
-    )
+        # Store results
+        all_results[dataset_config.name] = {
+            'logits': logits,
+            'labels': labels,
+            'initial_metrics': initial_metrics,
+            'initial_scores': bonafide_probs
+        }
 
     # ========================================================================
-    # Step 6: Prior Correction
+    # Step 4: Apply Calibration and Prior Correction (if enabled)
     # ========================================================================
-    print("\n" + "="*80)
-    print("STEP 6: PRIOR CORRECTION")
-    print("="*80)
+    if dev_dataset_idx is not None:
+        # Check if any dataset needs calibration
+        datasets_need_calibration = [ds for ds in config.datasets if ds.apply_calibration]
 
-    # Apply prior correction based on label distribution
-    corrected_eval_scores = apply_prior_correction(
-        val_labels, eval_labels, calibrated_eval_scores
-    )
+        if datasets_need_calibration:
+            print("\n" + "="*80)
+            print("STEP 4: APPLY CALIBRATION AND PRIOR CORRECTION")
+            print("="*80)
+
+            # Get calibration dataset (Dev)
+            cal_dataset_name = config.datasets[dev_dataset_idx].name
+            cal_logits = all_results[cal_dataset_name]['logits']
+            cal_labels = all_results[cal_dataset_name]['labels']
+
+            print(f"\nUsing '{cal_dataset_name}' as calibration reference")
+
+            # Apply calibration to datasets that need it
+            for dataset_config in config.datasets:
+                if not dataset_config.apply_calibration:
+                    # Skip datasets that don't need calibration
+                    print(f"\n[Skipping] {dataset_config.name} (calibration disabled)")
+                    continue
+
+                print(f"\n{'-'*80}")
+                print(f"Processing: {dataset_config.name}")
+                print(f"{'-'*80}")
+
+                test_logits = all_results[dataset_config.name]['logits']
+                test_labels = all_results[dataset_config.name]['labels']
+
+                # Apply Platt calibration
+                print(f"\n[Calibration] Applying Platt calibration to {dataset_config.name}")
+                calibrated_scores, calibrator = apply_platt_calibration(
+                    cal_logits, cal_labels, test_logits
+                )
+
+                # Apply prior correction (if enabled)
+                if config.apply_prior_correction:
+                    print(f"\n[Prior Correction] Applying prior correction to {dataset_config.name}")
+                    final_scores = apply_prior_correction(
+                        cal_labels, test_labels, calibrated_scores
+                    )
+                else:
+                    final_scores = calibrated_scores
+
+                # Compute final metrics
+                print(f"\n[Computing] Final metrics for {dataset_config.name}")
+                final_metrics = compute_metrics_from_scores(final_scores, test_labels)
+
+                # Store calibrated results
+                all_results[dataset_config.name]['calibrated_scores'] = final_scores
+                all_results[dataset_config.name]['calibrated_metrics'] = final_metrics
+
+            print(f"\n[SUCCESS] Calibration and prior correction complete")
+        else:
+            print(f"\n[INFO] No datasets require calibration, skipping Step 4")
+    else:
+        print(f"\n[WARNING] Cannot perform calibration without 'Dev' dataset")
 
     # ========================================================================
-    # Step 7: Compute Final Metrics
-    # ========================================================================
-    print("\n" + "="*80)
-    print("STEP 7: COMPUTE FINAL METRICS WITH CALIBRATION")
-    print("="*80)
-
-    # Compute final metrics on calibrated and corrected scores
-    final_metrics = compute_llr_and_metrics(corrected_eval_scores, eval_labels, "Evaluation (Final)")
-
-    # ========================================================================
-    # Step 8: Print Final Results
+    # Step 5: Print Final Results
     # ========================================================================
     print("\n" + "="*80)
     print("FINAL EVALUATION RESULTS")
     print("="*80)
 
-    print("\n" + "-"*80)
-    print("VALIDATION SET (DEV) - INITIAL")
-    print("-"*80)
-    print_metrics(val_metrics_initial, prefix="  ")
+    for dataset_config in config.datasets:
+        dataset_name = dataset_config.name
+        results = all_results[dataset_name]
 
-    print("\n" + "-"*80)
-    print("EVALUATION SET (EVAL) - INITIAL (Before Calibration)")
-    print("-"*80)
-    print_metrics(eval_metrics_initial, prefix="  ")
+        print(f"\n{'='*80}")
+        print(f"Dataset: {dataset_name}")
+        print(f"{'='*80}")
 
-    print("\n" + "-"*80)
-    print("EVALUATION SET (EVAL) - FINAL (After Platt Calibration + Prior Correction)")
-    print("-"*80)
-    print_metrics(final_metrics, prefix="  ")
+        # Print initial metrics
+        print(f"\n{'-'*80}")
+        print(f"{dataset_name} - Initial (No Calibration)")
+        print(f"{'-'*80}")
+        print_metrics(results['initial_metrics'], prefix="  ")
 
-    # Print detailed classification report using calibrated scores
-    # Convert corrected scores to logits format for classification report
-    eps = 1e-10
-    corrected_scores_clipped = np.clip(corrected_eval_scores, eps, 1 - eps)
-    calibrated_logits = np.stack([np.log(1 - corrected_scores_clipped), np.log(corrected_scores_clipped)], axis=1)
+        # Print calibrated metrics if available
+        if 'calibrated_metrics' in results:
+            print(f"\n{'-'*80}")
+            print(f"{dataset_name} - Final (After Calibration + Prior Correction)")
+            print(f"{'-'*80}")
+            print_metrics(results['calibrated_metrics'], prefix="  ")
 
-    print_classification_report_wrapper(
-        torch.from_numpy(calibrated_logits),
-        torch.from_numpy(eval_labels),
-        target_names=['spoof (AI)', 'bonafide (human)']
-    )
+            # Print classification report using calibrated scores
+            eps = 1e-10
+            calibrated_scores_clipped = np.clip(results['calibrated_scores'], eps, 1 - eps)
+            calibrated_logits = np.stack([
+                np.log(1 - calibrated_scores_clipped),
+                np.log(calibrated_scores_clipped)
+            ], axis=1)
+
+            print_classification_report_wrapper(
+                torch.from_numpy(calibrated_logits),
+                torch.from_numpy(results['labels']),
+                target_names=['spoof (AI)', 'bonafide (human)']
+            )
+        else:
+            # Print classification report using initial scores
+            print_classification_report_wrapper(
+                torch.from_numpy(results['logits']),
+                torch.from_numpy(results['labels']),
+                target_names=['spoof (AI)', 'bonafide (human)']
+            )
 
     print("\n" + "="*80)
     print("EVALUATION COMPLETE")
