@@ -17,7 +17,8 @@ from utils import (
     set_seed, get_device, clear_cuda_cache,
     create_loss_function, compute_all_metrics,
     print_metrics, print_classification_report_wrapper,
-    count_parameters, save_model, EarlyStopping
+    count_parameters, save_model, EarlyStopping,
+    load_model_weights, evaluate_with_calibration
 )
 
 
@@ -85,7 +86,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./ce/"
+    save_dir: str = "./checkpoints/"
 
     # Other
     seed: int = 42
@@ -229,65 +230,6 @@ def validate(
     metrics = compute_all_metrics(all_logits, all_labels)
 
     return avg_loss, metrics
-
-
-def evaluate(
-    model: nn.Module,
-    eval_loader: torch.utils.data.DataLoader,
-    device: torch.device,
-    use_tta: bool = False
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    Evaluate model on test set
-
-    Args:
-        model: Model to evaluate
-        eval_loader: Evaluation data loader
-        device: Device to evaluate on
-        use_tta: Whether TTA is enabled (affects batch shape)
-
-    Returns:
-        (all_logits, all_labels)
-    """
-    model.eval()
-    all_logits = []
-    all_labels = []
-
-    with torch.no_grad():
-        pbar = tqdm(eval_loader, desc="Evaluation", dynamic_ncols=True)
-        for batch in pbar:
-            waveforms = batch['waveforms'].to(device)
-            lengths = batch['lengths'].to(device)
-            labels = batch['labels'].to(device)
-
-            if use_tta:
-                # TTA enabled: waveforms shape [B, num_crops, C, T]
-                B, num_crops, C, T = waveforms.shape
-
-                # Reshape to [B*num_crops, C, T] for batch processing
-                waveforms_flat = waveforms.view(B * num_crops, C, T)
-                lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
-
-                # Forward pass on all crops
-                logits_flat = model(waveforms_flat, lengths_flat)  # [B*num_crops, 2]
-
-                # Reshape back to [B, num_crops, 2]
-                logits_crops = logits_flat.view(B, num_crops, 2)
-
-                # Average logits across crops
-                logits = logits_crops.mean(dim=1)  # [B, 2]
-            else:
-                # Normal inference: waveforms shape [B, C, T]
-                logits = model(waveforms, lengths)
-
-            # Collect results
-            all_logits.append(logits.cpu())
-            all_labels.append(labels.cpu())
-
-    all_logits = torch.cat(all_logits, dim=0)
-    all_labels = torch.cat(all_labels, dim=0)
-
-    return all_logits, all_labels
 
 
 # ============================================================================
@@ -550,39 +492,72 @@ def main():
     print("="*80)
 
     # Load best model from temporary checkpoint
-    print(f"\nLoading best model from {temp_best_path}...")
-    checkpoint = torch.load(temp_best_path, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    print(f"[✓] Loaded best model from epoch {checkpoint['epoch']}")
+    model = load_model_weights(model, temp_best_path, device, strict=True)
 
-    # Evaluate on train set to get train metrics
-    print("\nEvaluating on training set...")
-    train_logits, train_labels = evaluate(model, train_loader, device, use_tta=False)
-    final_train_metrics = compute_all_metrics(train_logits, train_labels)
+    # Use complete evaluation pipeline with calibration
+    results = evaluate_with_calibration(
+        model=model,
+        train_loader=train_loader,
+        dev_loader=dev_loader,
+        eval_loader=eval_loader,
+        device=device,
+        apply_calibration=True,
+        enable_prior_correction=True
+    )
 
-    # Evaluate on validation set to get val metrics
-    print("\nEvaluating on validation set...")
-    val_logits, val_labels = evaluate(model, dev_loader, device, use_tta=True)
-    final_val_metrics = compute_all_metrics(val_logits, val_labels)
+    # Extract results for convenience
+    final_train_metrics = results['train']['initial_metrics']
+    final_val_metrics = results['dev']['initial_metrics']
+    eval_metrics = results['eval']['initial_metrics']
 
-    # Evaluate on test set
-    print("\nEvaluating on test set...")
-    eval_logits, eval_labels = evaluate(model, eval_loader, device, use_tta=True)
-    eval_metrics = compute_all_metrics(eval_logits, eval_labels)
-
+    # Print final evaluation results
     print("\n" + "="*80)
     print("FINAL EVALUATION RESULTS")
     print("="*80)
+
+    # Print initial metrics (without calibration)
+    print("\n" + "-"*80)
+    print("INITIAL METRICS (No Calibration)")
+    print("-"*80)
     print_metrics(final_train_metrics, prefix="  [TRAIN] ")
     print_metrics(final_val_metrics, prefix="  [VAL] ")
     print_metrics(eval_metrics, prefix="  [TEST] ")
 
-    # Print classification report
-    print_classification_report_wrapper(
-        eval_logits,
-        eval_labels,
-        target_names=['spoof (AI)', 'bonafide (human)']
-    )
+    # Print calibrated metrics (if available)
+    if 'calibrated_metrics' in results['eval']:
+        print("\n" + "-"*80)
+        print("CALIBRATED METRICS (With Calibration + Prior Correction)")
+        print("-"*80)
+        print_metrics(results['dev']['calibrated_metrics'], prefix="  [VAL] ")
+        print_metrics(results['eval']['calibrated_metrics'], prefix="  [TEST] ")
+
+        # Print classification report using calibrated scores
+        import numpy as np
+        eps = 1e-10
+        calibrated_scores_clipped = np.clip(results['eval']['calibrated_scores'], eps, 1 - eps)
+        calibrated_logits = np.stack([
+            np.log(1 - calibrated_scores_clipped),
+            np.log(calibrated_scores_clipped)
+        ], axis=1)
+
+        print("\n" + "-"*80)
+        print("CLASSIFICATION REPORT (Calibrated)")
+        print("-"*80)
+        print_classification_report_wrapper(
+            torch.from_numpy(calibrated_logits),
+            torch.from_numpy(results['eval']['labels_np']),
+            target_names=['spoof (AI)', 'bonafide (human)']
+        )
+    else:
+        # Print classification report using initial scores
+        print("\n" + "-"*80)
+        print("CLASSIFICATION REPORT (Initial)")
+        print("-"*80)
+        print_classification_report_wrapper(
+            results['eval']['logits'],
+            results['eval']['labels'],
+            target_names=['spoof (AI)', 'bonafide (human)']
+        )
 
     # ========================================================================
     # Step 7: Save Model
