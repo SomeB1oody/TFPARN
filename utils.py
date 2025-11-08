@@ -12,7 +12,7 @@ from sklearn.metrics import (
     roc_curve, auc, classification_report,
     accuracy_score, f1_score, recall_score
 )
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -355,40 +355,6 @@ def compute_min_dcf(
     return min_dcf, min_dcf_threshold
 
 
-def compute_cllr(scores: np.ndarray, labels: np.ndarray) -> float:
-    """
-    Compute Log-Likelihood Ratio Cost (CLLR)
-
-    Args:
-        scores: Prediction scores (higher = more likely bonafide)
-        labels: Ground truth labels (0=spoof, 1=bonafide)
-
-    Returns:
-        cllr: CLLR value
-    """
-    eps = 1e-10
-
-    # Convert scores to likelihood ratios (assuming scores are log-odds)
-    # For binary classification, we use softmax probabilities
-    bonafide_scores = scores[labels == 1]
-    spoof_scores = scores[labels == 0]
-
-    if len(bonafide_scores) == 0 or len(spoof_scores) == 0:
-        return float('inf')
-
-    # Clip scores to avoid log(0)
-    bonafide_scores = np.clip(bonafide_scores, eps, 1 - eps)
-    spoof_scores = np.clip(spoof_scores, eps, 1 - eps)
-
-    # Compute CLLR
-    cllr_bonafide = np.mean(np.log2(1 + (1 / (bonafide_scores + eps))))
-    cllr_spoof = np.mean(np.log2(1 + spoof_scores / (1 - spoof_scores + eps)))
-
-    cllr = (cllr_bonafide + cllr_spoof) / 2.0
-
-    return cllr
-
-
 def compute_act_dcf(
     scores: np.ndarray,
     labels: np.ndarray,
@@ -430,6 +396,86 @@ def compute_act_dcf(
     return act_dcf
 
 
+def compute_cllr(
+    scores: np.ndarray,
+    labels: np.ndarray
+) -> float:
+    """
+    Compute Calibrated Log-Likelihood Ratio (CLLR) cost
+
+    CLLR measures the calibration quality of scores as posterior probabilities.
+    Lower values are better (0 is perfect, higher means worse calibration).
+
+    CLLR = 0.5 * (C_llr_target + C_llr_nontarget)
+    where:
+    - C_llr_target = mean(-log2(P(target|score))) for target samples
+    - C_llr_nontarget = mean(-log2(1 - P(target|score))) for nontarget samples
+
+    Args:
+        scores: Posterior probability scores P(bonafide|x) in [0, 1] (higher = more likely bonafide)
+        labels: Ground truth labels (0=spoof, 1=bonafide)
+
+    Returns:
+        cllr: Calibrated Log-Likelihood Ratio cost
+    """
+    # Ensure scores are in valid range
+    eps = 1e-10
+    scores = np.clip(scores, eps, 1 - eps)
+
+    # Separate bonafide and spoof samples
+    bonafide_mask = (labels == 1)
+    spoof_mask = (labels == 0)
+
+    bonafide_scores = scores[bonafide_mask]
+    spoof_scores = scores[spoof_mask]
+
+    # Compute log-likelihood ratio costs
+    # For bonafide samples: want high scores (close to 1)
+    # Cost = -log2(score) = negative log-likelihood
+    c_llr_bonafide = -np.log2(bonafide_scores).mean()
+
+    # For spoof samples: want low scores (close to 0)
+    # Cost = -log2(1 - score)
+    c_llr_spoof = -np.log2(1 - spoof_scores).mean()
+
+    # CLLR is the average of both costs
+    cllr = 0.5 * (c_llr_bonafide + c_llr_spoof)
+
+    return cllr
+
+
+def compute_prior_log_odds_shift(
+    prior_cal: float,
+    prior_eval: float
+) -> float:
+    """
+    Compute log-odds shift for prior correction
+
+    When calibrating scores on one dataset (e.g., validation) and evaluating
+    on another with different class priors, we need to adjust the scores.
+
+    The shift is: log(P_eval / P_cal * (1 - P_cal) / (1 - P_eval))
+
+    This is added to the log-odds: logit_corrected = logit + shift
+
+    Args:
+        prior_cal: Prior probability of positive class in calibration set
+        prior_eval: Prior probability of positive class in evaluation set
+
+    Returns:
+        shift: Log-odds shift value
+    """
+    eps = 1e-10
+    prior_cal = np.clip(prior_cal, eps, 1 - eps)
+    prior_eval = np.clip(prior_eval, eps, 1 - eps)
+
+    # Compute log-odds shift
+    # shift = log(P_eval / (1 - P_eval)) - log(P_cal / (1 - P_cal))
+    shift = np.log(prior_eval / (1 - prior_eval)) - np.log(prior_cal / (1 - prior_cal))
+
+    return shift
+
+
 def compute_all_metrics(
     logits: torch.Tensor,
     labels: torch.Tensor
@@ -458,7 +504,6 @@ def compute_all_metrics(
     # Compute metrics
     eer, _ = compute_eer(bonafide_scores, labels)
     min_dcf, _ = compute_min_dcf(bonafide_scores, labels)
-    cllr = compute_cllr(bonafide_scores, labels)
     act_dcf = compute_act_dcf(bonafide_scores, labels)
 
     accuracy = accuracy_score(labels, predictions)
@@ -472,7 +517,6 @@ def compute_all_metrics(
     metrics = {
         'eer': eer,
         'min_dcf': min_dcf,
-        'cllr': cllr,
         'act_dcf': act_dcf,
         'accuracy': accuracy,
         'f1_macro': f1,
@@ -494,8 +538,9 @@ def print_metrics(metrics: Dict[str, float], prefix: str = "") -> None:
     print(f"{prefix}Metrics:")
     print(f"{prefix}  - EER: {metrics['eer']:.4f}")
     print(f"{prefix}  - minDCF: {metrics['min_dcf']:.4f}")
-    print(f"{prefix}  - CLLR: {metrics['cllr']:.4f}")
     print(f"{prefix}  - actDCF: {metrics['act_dcf']:.4f}")
+    if 'cllr' in metrics:
+        print(f"{prefix}  - CLLR: {metrics['cllr']:.4f}")
     print(f"{prefix}  - Accuracy: {metrics['accuracy']:.4f}")
     print(f"{prefix}  - F1 (macro): {metrics['f1_macro']:.4f}")
     print(f"{prefix}  - Recall (macro): {metrics['recall_macro']:.4f}")
@@ -579,14 +624,14 @@ def save_checkpoint(
         'metrics': metrics
     }
     torch.save(checkpoint, save_path)
-    print(f" Checkpoint saved to {save_path}")
+    print(f"Checkpoint saved to {save_path}")
 
 
 def load_checkpoint(
-    model: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    load_path: str,
-    device: torch.device
+        model: nn.Module,
+        optimizer: torch.optim.Optimizer,
+        load_path: str,
+        device: torch.device
 ) -> Tuple[nn.Module, torch.optim.Optimizer, int, Dict[str, float]]:
     """
     Load model checkpoint
@@ -600,13 +645,13 @@ def load_checkpoint(
     Returns:
         (model, optimizer, epoch, metrics)
     """
-    checkpoint = torch.load(load_path, map_location=device)
+    checkpoint = torch.load(load_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     epoch = checkpoint['epoch']
     metrics = checkpoint['metrics']
 
-    print(f" Checkpoint loaded from {load_path}")
+    print(f" Checkpoint loaded from {load_path}")
     print(f"  - Epoch: {epoch}")
     print(f"  - Metrics: {metrics}")
 

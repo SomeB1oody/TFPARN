@@ -62,7 +62,7 @@ class ModelArgs:
 
     # Training Hyperparameters
     max_epochs: int = 120
-    learning_rate: float = 1e-6
+    learning_rate: float = 1e-4
     weight_decay: float = 1e-5
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
@@ -70,11 +70,11 @@ class ModelArgs:
 
     # Loss Function ('ce' or 'focal')
     loss_type: str = "ce"
-    focal_alpha: Tuple[float, float] = (1.0, 1.0)  # Alpha for focal loss [spoof, bonafide]
+    focal_alpha: float = 0.5  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 2.0  # Gamma for focal loss
 
     # Pairwise AUC/pAUC Loss
-    enable_pairwise: bool = False  # Whether to enable pairwise loss
+    enable_pairwise: bool = True  # Whether to enable pairwise loss
     pairwise_margin: float = 1.0  # Margin for pairwise ranking loss
     pairwise_weight: float = 0.3  # Weight for pairwise loss term
 
@@ -84,8 +84,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./checkpoints/"
-    model_name: str = "speech_transformer_asv5"
+    save_dir: str = "./ce/"
 
     # Other
     seed: int = 42
@@ -339,7 +338,8 @@ def main():
     print("="*80)
 
     if args.loss_type == "focal":
-        focal_alpha = torch.tensor(args.focal_alpha, dtype=torch.float32)
+        # Convert single alpha to [negative_class, positive_class] format
+        focal_alpha = torch.tensor([1.0 - args.focal_alpha, args.focal_alpha], dtype=torch.float32)
         criterion = create_loss_function(
             args.loss_type,
             class_weights,
@@ -510,7 +510,7 @@ def main():
 
     # Load best model from temporary checkpoint
     print(f"\nLoading best model from {temp_best_path}...")
-    checkpoint = torch.load(temp_best_path, map_location=device)
+    checkpoint = torch.load(temp_best_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
     print(f"[✓] Loaded best model from epoch {checkpoint['epoch']}")
 
@@ -573,6 +573,6 @@ if __name__ == "__main__":
         print("\n\n[!] Training interrupted by user")
         sys.exit(0)
     except Exception as e:
-        print(f"\n\n[X] Training failed with error:")
+        print(f"\n\n[!] Training failed with error:")
         print(f"  {str(e)}")
         raise
