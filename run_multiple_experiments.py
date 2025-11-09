@@ -129,7 +129,7 @@ def run_single_experiment(
     data_args.persistent_workers = args.persistent_workers
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
-    data_args.use_tta = True
+    data_args.use_tta = False  # Disable TTA for training-time validation
     data_args.tta_num_crops = 5
 
     train_loader, dev_loader, eval_loader, class_weights = make_loaders(data_args)
@@ -317,12 +317,17 @@ def run_single_experiment(
     # Load best model
     model = load_model_weights(model, temp_best_path, device, strict=True)
 
-    # Evaluate with calibration
+    # Recreate data loaders with TTA enabled for final evaluation
+    print("\n[INFO] Recreating data loaders with TTA enabled for final evaluation")
+    data_args.use_tta = True
+    _, dev_loader_tta, eval_loader_tta, _ = make_loaders(data_args)
+
+    # Evaluate with calibration (with TTA-enabled loaders)
     results = evaluate_with_calibration(
         model=model,
         train_loader=train_loader,
-        dev_loader=dev_loader,
-        eval_loader=eval_loader,
+        dev_loader=dev_loader_tta,
+        eval_loader=eval_loader_tta,
         device=device,
         apply_calibration=True,
         enable_prior_correction=True

@@ -59,26 +59,26 @@ class ModelArgs:
     nhead: int = 8
     num_layers: int = 6
     dim_feedforward: int = 1024
-    model_dropout: float = 0.5
+    model_dropout: float = 0.3
     activation: str = "relu"
 
     # Training Hyperparameters
     max_epochs: int = 200
     learning_rate: float = 1e-4
-    weight_decay: float = 1e-4
+    weight_decay: float = 1e-2
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
     scheduler_warmup_epochs: int = 5
 
     # Loss Function ('ce' or 'focal')
-    loss_type: str = "ce"
-    focal_alpha: float = 0.5  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
-    focal_gamma: float = 2.0  # Gamma for focal loss
+    loss_type: str = "focal"
+    focal_alpha: float = 0.6  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
+    focal_gamma: float = 1.2  # Gamma for focal loss
 
     # Pairwise AUC/pAUC Loss
     enable_pairwise: bool = True  # Whether to enable pairwise loss
     pairwise_margin: float = 1.0  # Margin for pairwise ranking loss
-    pairwise_weight: float = 0.5  # Weight for pairwise loss term
+    pairwise_weight: float = 0.3  # Weight for pairwise loss term
 
     # Early Stopping
     early_stopping_patience: int = 15
@@ -280,7 +280,7 @@ def main():
     data_args.persistent_workers = args.persistent_workers
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
-    data_args.use_tta = True  # Enable TTA for dev/eval
+    data_args.use_tta = False  # Enable/Disable  TTA for dev/eval
     data_args.tta_num_crops = 5  # Number of crops per sample
 
     # Load data
@@ -494,12 +494,17 @@ def main():
     # Load best model from temporary checkpoint
     model = load_model_weights(model, temp_best_path, device, strict=True)
 
-    # Use complete evaluation pipeline with calibration
+    # Recreate data loaders with TTA enabled for final evaluation
+    print("\n[INFO] Recreating data loaders with TTA enabled for final evaluation")
+    data_args.use_tta = True
+    _, dev_loader_tta, eval_loader_tta, _ = make_loaders(data_args)
+
+    # Use complete evaluation pipeline with calibration (with TTA-enabled loaders)
     results = evaluate_with_calibration(
         model=model,
         train_loader=train_loader,
-        dev_loader=dev_loader,
-        eval_loader=eval_loader,
+        dev_loader=dev_loader_tta,
+        eval_loader=eval_loader_tta,
         device=device,
         apply_calibration=True,
         enable_prior_correction=True

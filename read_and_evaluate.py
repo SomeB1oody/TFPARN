@@ -45,26 +45,28 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./ce_opt/best_model_exp1.pt"
+    model_path: str = "./focal_0.6_1.2/best_model_eer_0.3820.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
         DatasetConfig(
             name="Train",
             data_dir="H:/true_tone5/data/flac_T/",
-            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv"
+            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv",
+            use_tta=False,
         ),
         DatasetConfig(
             name="Dev",
             data_dir="H:/true_tone5/data/flac_D/",
-            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
+            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv",
+            use_tta=True,
         ),
 
     ])
 
     # Audio processing parameters
     sample_rate: int = 16000
-    duration_sec: float = 2.0
+    duration_sec: float = 4.0
     mono: bool = True
     normalize: bool = True
 

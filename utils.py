@@ -890,8 +890,8 @@ def evaluate_with_calibration(
 
     datasets = {
         'train': (train_loader, False),  # (loader, use_tta)
-        'dev': (dev_loader, True),
-        'eval': (eval_loader, True)
+        'dev': (dev_loader, True),  # TTA enabled for final evaluation
+        'eval': (eval_loader, True)  # TTA enabled for final evaluation
     }
 
     for dataset_name, (loader, use_tta) in datasets.items():
