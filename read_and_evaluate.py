@@ -45,7 +45,7 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./focal_0.6_1.2/best_model_eer_0.3820.pt"
+    model_path: str = "./focal_0.6_1.2_eer_0.1273/best_model_eer_0.3820.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [

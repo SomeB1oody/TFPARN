@@ -257,7 +257,7 @@ def run_single_experiment(
             device, epoch
         )
 
-        print(f"\nTrain Loss: {train_loss:.4f}")
+        print(f"\nTrain Loss: {train_loss:.6f}")
         print_metrics(train_metrics, prefix="  [TRAIN] ")
 
         # Validate
@@ -265,12 +265,14 @@ def run_single_experiment(
             model, dev_loader, criterion, device, epoch, use_tta=False
         )
 
-        print(f"\nValidation Loss: {val_loss:.4f}")
+        print(f"\nValidation Loss: {val_loss:.6f}")
         print_metrics(val_metrics, prefix="  [VAL] ")
 
         # Update scheduler
         if scheduler is not None and epoch > args.scheduler_warmup_epochs:
             scheduler.step()
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"\nLearning rate: {current_lr:.8f}")
 
         # Check for improvement
         current_metric = val_metrics[args.early_stopping_metric]
@@ -351,8 +353,7 @@ def run_single_experiment(
     print("STEP 7: SAVE MODEL")
     print("="*80)
 
-    eval_metric_value = eval_metrics[args.early_stopping_metric]
-    model_name = f"exp{experiment_idx}_{args.early_stopping_metric}_{eval_metric_value:.4f}"
+    model_name = f"exp{experiment_idx}_{args.early_stopping_metric}_{best_metric:.4f}"
     model_dir = os.path.join(args.save_dir, model_name)
 
     save_model(

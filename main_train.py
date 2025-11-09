@@ -147,7 +147,7 @@ def train_one_epoch(
 
         # Update progress bar
         avg_loss = total_loss / (batch_idx + 1)
-        pbar.set_postfix({'loss': f'{loss.item():.3f}', 'avg_loss': f'{avg_loss:.3f}'})
+        pbar.set_postfix({'loss': f'{loss.item():.5f}', 'avg_loss': f'{avg_loss:.5f}'})
 
     # Compute epoch metrics
     avg_loss = total_loss / len(train_loader)
@@ -427,7 +427,7 @@ def main():
             device, epoch
         )
 
-        print(f"\nTrain Loss: {train_loss:.4f}")
+        print(f"\nTrain Loss: {train_loss:.6f}")
         print_metrics(train_metrics, prefix="  [TRAIN] ")
 
         # Validate (without TTA)
@@ -435,14 +435,14 @@ def main():
             model, dev_loader, criterion, device, epoch, use_tta=False
         )
 
-        print(f"\nValidation Loss: {val_loss:.4f}")
+        print(f"\nValidation Loss: {val_loss:.6f}")
         print_metrics(val_metrics, prefix="  [VAL] ")
 
         # Update scheduler
         if scheduler is not None and epoch > args.scheduler_warmup_epochs:
             scheduler.step()
             current_lr = optimizer.param_groups[0]['lr']
-            print(f"\nLearning rate: {current_lr:.6f}")
+            print(f"\nLearning rate: {current_lr:.8f}")
 
         # Check for improvement
         current_metric = val_metrics[args.early_stopping_metric]
@@ -574,11 +574,8 @@ def main():
     response = input("\nDo you want to save the model? (yes/no): ").strip().lower()
 
     if response in ['yes', 'y']:
-        # Get the metric value from eval set
-        eval_metric_value = eval_metrics[args.early_stopping_metric]
-
         # Create model name with metric and value
-        model_name = f"best_model_{args.early_stopping_metric}_{eval_metric_value:.4f}"
+        model_name = f"best_model_{args.early_stopping_metric}_{best_metric:.4f}"
 
         # Create directory with same name as model
         model_dir = os.path.join(args.save_dir, model_name)
@@ -604,7 +601,7 @@ def main():
         print(f"  - Model weights: {model_name}.pt")
         print(f"  - Configuration & metrics: {model_name}.json")
         print(f"  - Metric: {args.early_stopping_metric}")
-        print(f"  - Value on Test set: {eval_metric_value:.4f}")
+        print(f"  - Value on Dev set: {best_metric:.4f}")
     else:
         print("\n[!] Model not saved")
 
