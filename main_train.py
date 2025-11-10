@@ -72,7 +72,7 @@ class ModelArgs:
 
     # Loss Function ('ce' or 'focal')
     loss_type: str = "focal"
-    focal_alpha: float = 0.6  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
+    focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 1.2  # Gamma for focal loss
 
     # Pairwise AUC/pAUC Loss
@@ -280,7 +280,7 @@ def main():
     data_args.persistent_workers = args.persistent_workers
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
-    data_args.use_tta = False  # Enable/Disable  TTA for dev/eval
+    data_args.use_tta = True  # Enable/Disable  TTA for dev/eval
     data_args.tta_num_crops = 5  # Number of crops per sample
 
     # Load data
@@ -430,9 +430,9 @@ def main():
         print(f"\nTrain Loss: {train_loss:.6f}")
         print_metrics(train_metrics, prefix="  [TRAIN] ")
 
-        # Validate (without TTA)
+        # Validate (with TTA)
         val_loss, val_metrics = validate(
-            model, dev_loader, criterion, device, epoch, use_tta=False
+            model, dev_loader, criterion, device, epoch, use_tta=True
         )
 
         print(f"\nValidation Loss: {val_loss:.6f}")
