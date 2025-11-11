@@ -34,6 +34,10 @@ class SpeechClassifierArgs:
     dropout: float = 0.1
     activation: str = "relu"
 
+    # Pooling method: "mean", "attention", "top-k"
+    pooling_method: str = "mean"
+    top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
+
 
 # ============================================================================
 # Model Components
@@ -88,7 +92,7 @@ class SpeechTransformerClassifier(nn.Module):
         1. Frontend: Log-Mel Spectrogram extraction + linear projection
         2. Positional Encoding: Sinusoidal positional encoding
         3. Backbone: Transformer Encoder (multi-layer multi-head attention)
-        4. Pooling: Mean pooling with masking
+        4. Pooling: Mean/Attention/Top-k pooling with masking
         5. Classification Head: Linear layers output [B, 2] logits
 
     Input:
@@ -109,6 +113,8 @@ class SpeechTransformerClassifier(nn.Module):
         self.hop_length = args.hop_length
         self.sample_rate = args.sample_rate
         self.d_model = args.d_model
+        self.pooling_method = args.pooling_method
+        self.top_k_ratio = args.top_k_ratio
 
         print(f"\n[Model] Initializing SpeechTransformerClassifier")
         print(f"  - n_mels: {args.n_mels}")
@@ -119,6 +125,7 @@ class SpeechTransformerClassifier(nn.Module):
         print(f"  - num_layers: {args.num_layers}")
         print(f"  - dim_feedforward: {args.dim_feedforward}")
         print(f"  - dropout: {args.dropout}")
+        print(f"  - pooling_method: {args.pooling_method}")
 
         # Create mel filterbank
         mel_basis = self._create_mel_filterbank(
@@ -156,6 +163,14 @@ class SpeechTransformerClassifier(nn.Module):
             encoder_layer,
             num_layers=args.num_layers
         )
+
+        # Attention pooling layer (if needed)
+        if self.pooling_method == "attention":
+            self.attention_pooling = nn.Sequential(
+                nn.Linear(args.d_model, args.d_model // 2),
+                nn.Tanh(),
+                nn.Linear(args.d_model // 2, 1)
+            )
 
         # Classification head
         self.classifier = nn.Sequential(
@@ -331,10 +346,46 @@ class SpeechTransformerClassifier(nn.Module):
             src_key_padding_mask=src_key_padding_mask
         )  # [B, T', d_model]
 
-        # 7. Mean pooling with masking
+        # 7. Pooling with masking
         mask_expanded = (~src_key_padding_mask).unsqueeze(-1)  # [B, T', 1]
-        masked_encoded = encoded * mask_expanded  # [B, T', d_model]
-        pooled = masked_encoded.sum(dim=1) / mask_expanded.sum(dim=1).clamp(min=1)  # [B, d_model]
+
+        if self.pooling_method == "mean":
+            # Mean pooling with masking
+            masked_encoded = encoded * mask_expanded  # [B, T', d_model]
+            pooled = masked_encoded.sum(dim=1) / mask_expanded.sum(dim=1).clamp(min=1)  # [B, d_model]
+
+        elif self.pooling_method == "attention":
+            # Attention pooling
+            attention_scores = self.attention_pooling(encoded)  # [B, T', 1]
+            attention_scores = attention_scores.masked_fill(src_key_padding_mask.unsqueeze(-1), float('-inf'))
+            attention_weights = torch.softmax(attention_scores, dim=1)  # [B, T', 1]
+            pooled = (encoded * attention_weights).sum(dim=1)  # [B, d_model]
+
+        elif self.pooling_method == "top-k":
+            # Top-k pooling: select top-k frames by L2 norm, amplifies short artifacts
+            frame_norms = torch.norm(encoded, p=2, dim=-1)  # [B, T']
+            frame_norms = frame_norms.masked_fill(src_key_padding_mask, float('-inf'))
+
+            # Calculate k based on actual lengths
+            valid_lengths = mask_expanded.sum(dim=1).squeeze(-1)  # [B]
+            k_values = (valid_lengths * self.top_k_ratio).clamp(min=1).long()  # [B]
+
+            # Get top-k indices for each sample
+            batch_size = encoded.size(0)
+            pooled = torch.zeros(batch_size, self.d_model, device=encoded.device)
+
+            for i in range(batch_size):
+                k = k_values[i].item()
+                valid_len = valid_lengths[i].long().item()
+
+                # Get top-k indices for this sample
+                _, topk_indices = torch.topk(frame_norms[i, :valid_len], k=min(k, valid_len))
+
+                # Average the top-k frames
+                pooled[i] = encoded[i, topk_indices].mean(dim=0)
+
+        else:
+            raise ValueError(f"Unknown pooling method: {self.pooling_method}")
 
         # 8. Classification
         logits = self.classifier(pooled)  # [B, 2]

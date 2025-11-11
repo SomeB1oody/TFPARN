@@ -101,6 +101,57 @@ class WeightedCrossEntropyLoss(nn.Module):
         return F.cross_entropy(logits, labels, weight=self.weights)
 
 
+class WeightedBCELoss(nn.Module):
+    """
+    Weighted Binary Cross Entropy Loss for binary classification
+
+    This is an alternative to CE loss that treats the problem as binary classification.
+    Uses sigmoid activation instead of softmax, and computes BCE on the positive class logit.
+    """
+
+    def __init__(self, pos_weight: torch.Tensor = None):
+        """
+        Args:
+            pos_weight: Weight for positive class (bonafide). If None, no weighting is used.
+                       Should be a scalar tensor.
+        """
+        super().__init__()
+        if pos_weight is not None:
+            self.register_buffer('pos_weight', pos_weight)
+        else:
+            self.pos_weight = None
+
+    def forward(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            logits: [B, 2] - model outputs (logits for both classes)
+            labels: [B] - ground truth (0=spoof, 1=bonafide)
+
+        Returns:
+            loss: scalar
+        """
+        # Extract positive class (bonafide) logits
+        positive_logits = logits[:, 1]  # [B]
+
+        # Convert labels to float for BCE
+        labels_float = labels.float()  # [B]
+
+        # Compute BCE loss
+        if self.pos_weight is not None:
+            loss = F.binary_cross_entropy_with_logits(
+                positive_logits,
+                labels_float,
+                pos_weight=self.pos_weight
+            )
+        else:
+            loss = F.binary_cross_entropy_with_logits(
+                positive_logits,
+                labels_float
+            )
+
+        return loss
+
+
 class FocalLoss(nn.Module):
     """
     Focal Loss for handling class imbalance
@@ -245,6 +296,7 @@ class CombinedLoss(nn.Module):
 def create_loss_function(
     loss_type: str,
     class_weights: torch.Tensor,
+    use_class_weights: bool = True,
     focal_alpha: torch.Tensor = None,
     focal_gamma: float = 2.0,
     enable_pairwise: bool = False,
@@ -255,8 +307,9 @@ def create_loss_function(
     Create loss function based on type
 
     Args:
-        loss_type: 'ce' or 'focal'
-        class_weights: Class weights for CE loss [num_classes]
+        loss_type: 'ce', 'bce', or 'focal'
+        class_weights: Class weights for CE/BCE loss [num_classes]
+        use_class_weights: Whether to use class weights for CE/BCE (ignored for focal)
         focal_alpha: Alpha parameter for focal loss [num_classes]
         focal_gamma: Gamma parameter for focal loss
         enable_pairwise: Whether to add pairwise ranking loss
@@ -270,9 +323,25 @@ def create_loss_function(
 
     # Create main loss
     if loss_type == 'ce':
-        print(f"  - Type: Weighted Cross Entropy")
-        print(f"  - Class weights: {class_weights.tolist()}")
-        main_criterion = WeightedCrossEntropyLoss(class_weights)
+        if use_class_weights:
+            print(f"  - Type: Weighted Cross Entropy")
+            print(f"  - Class weights: {class_weights.tolist()}")
+            main_criterion = WeightedCrossEntropyLoss(class_weights)
+        else:
+            print(f"  - Type: Cross Entropy (no class weights)")
+            main_criterion = WeightedCrossEntropyLoss(torch.ones_like(class_weights))
+
+    elif loss_type == 'bce':
+        if use_class_weights:
+            # For BCE, pos_weight is the ratio of negative to positive samples
+            # class_weights[1] is the weight for positive class (bonafide)
+            pos_weight = class_weights[1].unsqueeze(0)  # Make it a scalar tensor
+            print(f"  - Type: Weighted Binary Cross Entropy")
+            print(f"  - Positive class weight: {pos_weight.item():.4f}")
+            main_criterion = WeightedBCELoss(pos_weight)
+        else:
+            print(f"  - Type: Binary Cross Entropy (no class weights)")
+            main_criterion = WeightedBCELoss(pos_weight=None)
 
     elif loss_type == 'focal':
         if focal_alpha is None:
@@ -283,7 +352,7 @@ def create_loss_function(
         main_criterion = FocalLoss(focal_alpha, focal_gamma)
 
     else:
-        raise ValueError(f"Unknown loss type: {loss_type}. Use 'ce' or 'focal'")
+        raise ValueError(f"Unknown loss type: {loss_type}. Use 'ce', 'bce', or 'focal'")
 
     # Add pairwise ranking loss if enabled
     if enable_pairwise:

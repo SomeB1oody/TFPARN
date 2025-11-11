@@ -61,6 +61,8 @@ class ModelArgs:
     dim_feedforward: int = 1024
     model_dropout: float = 0.3
     activation: str = "relu"
+    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
+    top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
     max_epochs: int = 200
@@ -70,8 +72,9 @@ class ModelArgs:
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
     scheduler_warmup_epochs: int = 5
 
-    # Loss Function ('ce' or 'focal')
-    loss_type: str = "focal"
+    # Loss Function ('ce', 'bce', or 'focal')
+    loss_type: str = "bce"
+    use_class_weights: bool = True  # Whether to use class weights for CE and BCE
     focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 1.2  # Gamma for focal loss
 
@@ -305,6 +308,8 @@ def main():
     model_args.dim_feedforward = args.dim_feedforward
     model_args.dropout = args.model_dropout
     model_args.activation = args.activation
+    model_args.pooling_method = args.pooling_method
+    model_args.top_k_ratio = args.top_k_ratio
 
     # Create model
     model = create_model(model_args)
@@ -326,6 +331,7 @@ def main():
         criterion = create_loss_function(
             args.loss_type,
             class_weights,
+            use_class_weights=args.use_class_weights,
             focal_alpha=focal_alpha,
             focal_gamma=args.focal_gamma,
             enable_pairwise=args.enable_pairwise,
@@ -336,6 +342,7 @@ def main():
         criterion = create_loss_function(
             args.loss_type,
             class_weights,
+            use_class_weights=args.use_class_weights,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight

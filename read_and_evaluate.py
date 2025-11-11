@@ -87,6 +87,8 @@ class EvaluationConfig:
     dim_feedforward: int = 1024
     model_dropout: float = 0.3
     activation: str = "relu"
+    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
+    top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
 
     # Miscellaneous
     seed: int = 42  # Random seed
@@ -278,6 +280,8 @@ def main():
     model_args.dim_feedforward = config.dim_feedforward
     model_args.dropout = config.model_dropout
     model_args.activation = config.activation
+    model_args.pooling_method = config.pooling_method
+    model_args.top_k_ratio = config.top_k_ratio
 
     # Create model
     print("\n[Creating] Model architecture")

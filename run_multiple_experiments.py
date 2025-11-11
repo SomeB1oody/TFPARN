@@ -39,36 +39,57 @@ def create_experiment_list() -> List[ModelArgs]:
     # Experiment 1
     exp1 = ModelArgs()
     exp1.learning_rate = 1e-4
+    exp1.weight_decay = 1e-2
     exp1.loss_type = "ce"
-    exp1.save_dir = "./ce_opt/"
+    exp1.use_class_weights = True
+    exp1.focal_alpha = 0.3
+    exp1.focal_gamma = 1.5
+    exp1.save_dir = "./ce/"
     experiments.append(exp1)
 
     # Experiment 2
     exp2 = ModelArgs()
-    exp2.learning_rate = 5e-5
+    exp2.learning_rate = 1e-4
+    exp2.weight_decay = 1e-2
     exp2.loss_type = "ce"
-    exp2.save_dir = "./ce_low_lr/"
+    exp2.use_class_weights = False
+    exp2.focal_alpha = 0.3
+    exp2.focal_gamma = 1.2
+    exp2.save_dir = "./ce_no_class_weights/"
     experiments.append(exp2)
 
     # Experiment 3
     exp3 = ModelArgs()
     exp3.learning_rate = 1e-4
     exp3.weight_decay = 1e-2
-    exp3.loss_type = "focal"
-    exp3.focal_alpha = 0.6
+    exp3.loss_type = "bce"
+    exp3.use_class_weights = False
+    exp3.focal_alpha = 0.3
     exp3.focal_gamma = 1.2
-    exp3.save_dir = "./focal_0.6_1.2/"
+    exp3.save_dir = "./bce_no_class_weights/"
     experiments.append(exp3)
 
     # Experiment 4
     exp4 = ModelArgs()
+    exp4.pooling_method = "attention"
     exp4.learning_rate = 1e-4
     exp4.weight_decay = 1e-2
     exp4.loss_type = "focal"
-    exp4.focal_alpha = 0.9
+    exp4.focal_alpha = 0.3
     exp4.focal_gamma = 1.2
-    exp4.save_dir = "./focal_0.9_1.2/"
+    exp4.save_dir = "./focal_0.3_1.2_attention/"
     experiments.append(exp4)
+
+    # Experiment 5
+    exp5 = ModelArgs()
+    exp5.pooling_method = "top-k"
+    exp5.learning_rate = 1e-4
+    exp5.weight_decay = 1e-2
+    exp5.loss_type = "focal"
+    exp5.focal_alpha = 0.3
+    exp5.focal_gamma = 1.2
+    exp5.save_dir = "./focal_0.3_1.2_top-k/"
+    experiments.append(exp5)
 
     return experiments
 
@@ -129,7 +150,7 @@ def run_single_experiment(
     data_args.persistent_workers = args.persistent_workers
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
-    data_args.use_tta = False  # Disable TTA for training-time validation
+    data_args.use_tta = True  # Enable TTA for training-time validation
     data_args.tta_num_crops = 5
 
     train_loader, dev_loader, eval_loader, class_weights = make_loaders(data_args)
@@ -171,6 +192,7 @@ def run_single_experiment(
         criterion = create_loss_function(
             args.loss_type,
             class_weights,
+            use_class_weights=args.use_class_weights,
             focal_alpha=focal_alpha,
             focal_gamma=args.focal_gamma,
             enable_pairwise=args.enable_pairwise,
@@ -181,6 +203,7 @@ def run_single_experiment(
         criterion = create_loss_function(
             args.loss_type,
             class_weights,
+            use_class_weights=args.use_class_weights,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight
@@ -244,7 +267,7 @@ def run_single_experiment(
     best_epoch = 0
 
     os.makedirs(args.save_dir, exist_ok=True)
-    temp_best_path = f"{args.save_dir}/best_model_exp{experiment_idx}.pt"
+    temp_best_path = f"{args.save_dir}/best_model.pt"
 
     for epoch in range(1, args.max_epochs + 1):
         print("\n" + "-"*80)
@@ -262,7 +285,7 @@ def run_single_experiment(
 
         # Validate
         val_loss, val_metrics = validate(
-            model, dev_loader, criterion, device, epoch, use_tta=False
+            model, dev_loader, criterion, device, epoch, use_tta=True
         )
 
         print(f"\nValidation Loss: {val_loss:.6f}")
@@ -353,7 +376,7 @@ def run_single_experiment(
     print("STEP 7: SAVE MODEL")
     print("="*80)
 
-    model_name = f"exp{experiment_idx}_{args.early_stopping_metric}_{best_metric:.4f}"
+    model_name = f"best_model_{args.early_stopping_metric}_{best_metric:.4f}"
     model_dir = os.path.join(args.save_dir, model_name)
 
     save_model(
@@ -450,7 +473,7 @@ def main():
 
     if all_results:
         # Save summary to JSON
-        summary_path = os.path.join(experiments[0].save_dir, f"experiments_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
+        summary_path = os.path.join("./", f"experiments_summary_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json")
 
         # Convert tensors to floats for JSON serialization
         json_results = []
