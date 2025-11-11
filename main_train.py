@@ -32,13 +32,15 @@ class ModelArgs:
     Complete configuration for training
     Includes: data processing, model architecture, and training hyperparameters
     """
-    # Data Processing Parameters (from data_process.py)
-    train_data_dir: str = "H:/true_tone5/data/flac_T/"
-    dev_data_dir: str = "H:/true_tone5/data/flac_D/"
-    eval_data_dir: str = "H:/true_tone5/data/flac_E/"
-    train_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv"
-    dev_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
-    eval_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
+    # Data paths
+    train_data_dir: str = "N:/Dataset/ASV5/flac_T/"
+    dev_data_dir: str = "N:/Dataset/ASV5/flac_D/"
+    eval_data_dir: str = "N:/Dataset/ASV5/flac_E/"
+
+    # Protocol file paths
+    train_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.train.tsv"
+    dev_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv"
+    eval_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv"
 
     sample_rate: int = 16000
     duration_sec: float = 4.0
@@ -62,7 +64,7 @@ class ModelArgs:
     model_dropout: float = 0.3
     activation: str = "relu"
     pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
-    top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
+    top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
     max_epochs: int = 200
@@ -73,7 +75,7 @@ class ModelArgs:
     scheduler_warmup_epochs: int = 5
 
     # Loss Function ('ce', 'bce', or 'focal')
-    loss_type: str = "bce"
+    loss_type: str = "focal"
     use_class_weights: bool = True  # Whether to use class weights for CE and BCE
     focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 1.2  # Gamma for focal loss
@@ -445,11 +447,19 @@ def main():
         print(f"\nValidation Loss: {val_loss:.6f}")
         print_metrics(val_metrics, prefix="  [VAL] ")
 
-        # Update scheduler
-        if scheduler is not None and epoch > args.scheduler_warmup_epochs:
-            scheduler.step()
-            current_lr = optimizer.param_groups[0]['lr']
-            print(f"\nLearning rate: {current_lr:.8f}")
+        # Update scheduler (with warmup: LR scales linearly from 0 to target LR during warmup)
+        if scheduler is not None:
+            if epoch <= args.scheduler_warmup_epochs:
+                # Linear warmup phase
+                warmup_lr = args.learning_rate * epoch / args.scheduler_warmup_epochs
+                for param_group in optimizer.param_groups:
+                    param_group['lr'] = warmup_lr
+                print(f"\nLearning rate (warmup): {warmup_lr:.8f}")
+            else:
+                # After warmup, use scheduler
+                scheduler.step()
+                current_lr = optimizer.param_groups[0]['lr']
+                print(f"\nLearning rate: {current_lr:.8f}")
 
         # Check for improvement
         current_metric = val_metrics[args.early_stopping_metric]
@@ -572,45 +582,40 @@ def main():
         )
 
     # ========================================================================
-    # Step 7: Save Model
+    # Step 7: Save Model (Auto-save)
     # ========================================================================
     print("\n" + "="*80)
     print("STEP 7: SAVE MODEL")
     print("="*80)
 
-    response = input("\nDo you want to save the model? (yes/no): ").strip().lower()
+    # Create model name with metric and value
+    model_name = f"best_model_{args.early_stopping_metric}_{best_metric:.4f}"
 
-    if response in ['yes', 'y']:
-        # Create model name with metric and value
-        model_name = f"best_model_{args.early_stopping_metric}_{best_metric:.4f}"
+    # Create directory with same name as model
+    model_dir = os.path.join(args.save_dir, model_name)
 
-        # Create directory with same name as model
-        model_dir = os.path.join(args.save_dir, model_name)
+    print(f"\nAuto-saving model to directory: {model_dir}")
 
-        print(f"\nSaving model to directory: {model_dir}")
+    # Call save_model function
+    save_model(
+        model_save_dir=model_dir,
+        model_name=model_name,
+        model=model,
+        optimizer=optimizer,
+        data_args=data_args,
+        model_args=model_args,
+        train_args=args,
+        train_metrics=final_train_metrics,
+        val_metrics=final_val_metrics,
+        test_metrics=eval_metrics
+    )
 
-        # Call save_model function
-        save_model(
-            model_save_dir=model_dir,
-            model_name=model_name,
-            model=model,
-            optimizer=optimizer,
-            data_args=data_args,
-            model_args=model_args,
-            train_args=args,
-            train_metrics=final_train_metrics,
-            val_metrics=final_val_metrics,
-            test_metrics=eval_metrics
-        )
-
-        print(f"\n[✓] Model saved successfully!")
-        print(f"  - Directory: {model_dir}")
-        print(f"  - Model weights: {model_name}.pt")
-        print(f"  - Configuration & metrics: {model_name}.json")
-        print(f"  - Metric: {args.early_stopping_metric}")
-        print(f"  - Value on Dev set: {best_metric:.4f}")
-    else:
-        print("\n[!] Model not saved")
+    print(f"\n[✓] Model saved successfully!")
+    print(f"  - Directory: {model_dir}")
+    print(f"  - Model weights: {model_name}.pt")
+    print(f"  - Configuration & metrics: {model_name}.json")
+    print(f"  - Metric: {args.early_stopping_metric}")
+    print(f"  - Value on Dev set: {best_metric:.4f}")
 
     print("\n" + "="*80)
     print("ALL DONE!")

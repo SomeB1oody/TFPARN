@@ -698,25 +698,28 @@ def load_model_weights(
             state_dict = checkpoint
             print(f"  - Checkpoint format: raw state_dict")
 
-        # Try to load with strict=False to handle mismatches
-        # This allows loading even if some keys don't match
-        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=strict)
+        # Try to load - handle both _IncompatibleKeys and None return types
+        res = model.load_state_dict(state_dict, strict=strict)
 
-        if missing_keys:
-            print(f"  [WARNING] Missing keys in checkpoint: {len(missing_keys)}")
-            if len(missing_keys) <= 5:
-                for key in missing_keys:
-                    print(f"    - {key}")
-            else:
-                print(f"    - Showing first 5: {missing_keys[:5]}")
-
-        if unexpected_keys:
-            print(f"  [WARNING] Unexpected keys in checkpoint: {len(unexpected_keys)}")
-            if len(unexpected_keys) <= 5:
-                for key in unexpected_keys:
-                    print(f"    - {key}")
-            else:
-                print(f"    - Showing first 5: {unexpected_keys[:5]}")
+        # Compatible with both PyTorch versions (some return _IncompatibleKeys, some return None)
+        if hasattr(res, "missing_keys"):
+            missing_keys, unexpected_keys = res.missing_keys, res.unexpected_keys
+            if missing_keys:
+                print(f"  [WARNING] Missing keys: {len(missing_keys)}")
+                if len(missing_keys) <= 5:
+                    for key in missing_keys:
+                        print(f"    - {key}")
+                else:
+                    print(f"    - Showing first 5: {missing_keys[:5]}")
+            if unexpected_keys:
+                print(f"  [WARNING] Unexpected keys: {len(unexpected_keys)}")
+                if len(unexpected_keys) <= 5:
+                    for key in unexpected_keys:
+                        print(f"    - {key}")
+                else:
+                    print(f"    - Showing first 5: {unexpected_keys[:5]}")
+        else:
+            print("[SUCCESS] Model weights loaded successfully (strict match).")
 
         print(f"[SUCCESS] Model weights loaded successfully")
 

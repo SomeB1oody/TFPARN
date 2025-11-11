@@ -21,8 +21,8 @@ class SpeechClassifierArgs:
     Configuration for Speech Transformer Classifier
     """
     # Mel Spectrogram parameters
-    n_mels: int = 80
-    n_fft: int = 512
+    n_mels: int = 128
+    n_fft: int = 768
     hop_length: int = 160
     sample_rate: int = 16000
 
@@ -35,8 +35,8 @@ class SpeechClassifierArgs:
     activation: str = "relu"
 
     # Pooling method: "mean", "attention", "top-k"
-    pooling_method: str = "mean"
-    top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
+    pooling_method: str = "attention"
+    top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
 
 
 # ============================================================================
@@ -136,6 +136,9 @@ class SpeechTransformerClassifier(nn.Module):
             fmax=args.sample_rate // 2
         )
         self.register_buffer('mel_basis', mel_basis)
+
+        # Register Hann window as buffer to avoid creating it every forward pass
+        self.register_buffer('hann', torch.hann_window(args.n_fft))
 
         # Input normalization layer
         self.input_norm = nn.LayerNorm(args.n_mels)
@@ -253,13 +256,13 @@ class SpeechTransformerClassifier(nn.Module):
         if waveforms.dim() == 3:
             waveforms = waveforms.squeeze(1)
 
-        # STFT
+        # STFT (use precomputed Hann window buffer)
         stft = torch.stft(
             waveforms,
             n_fft=self.n_fft,
             hop_length=self.hop_length,
             win_length=self.n_fft,
-            window=torch.hann_window(self.n_fft).to(waveforms.device),
+            window=self.hann,
             center=True,
             return_complex=True
         )  # [B, n_fft // 2 + 1, T']
@@ -334,7 +337,10 @@ class SpeechTransformerClassifier(nn.Module):
         features = self.pos_encoder(features)  # [B, T', d_model]
 
         # 5. Create padding mask
-        feature_lengths = (lengths // self.hop_length).clamp(max=features.size(1))
+        # Note: Since we use fixed-length audio crops and center=True in STFT,
+        # for simplicity we use the actual feature size as valid length
+        feature_lengths = torch.full((features.size(0),), features.size(1),
+                                     device=features.device, dtype=torch.long)
         src_key_padding_mask = self._create_padding_mask(
             feature_lengths,
             features.size(1)

@@ -28,14 +28,14 @@ class DefaultArgs:
     Default arguments for data loading
     """
     # Data paths
-    train_data_dir: str = "H:/true_tone5/data/flac_T/"
-    dev_data_dir: str = "H:/true_tone5/data/flac_D/"
-    eval_data_dir: str = "H:/true_tone5/data/flac_E/"
+    train_data_dir: str = "N:/Dataset/ASV5/flac_T/"
+    dev_data_dir: str = "N:/Dataset/ASV5/flac_D/"
+    eval_data_dir: str = "N:/Dataset/ASV5/flac_E/"
 
     # Protocol file paths
-    train_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv"
-    dev_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv"
-    eval_protocol_dir: str = "H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.eval.track_1.tsv"
+    train_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.train.tsv"
+    dev_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv"
+    eval_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv"
 
     # Audio processing parameters
     sample_rate: int = 16000

@@ -363,11 +363,21 @@ def main():
                 )
 
                 # Apply prior correction (if enabled)
+                # WARNING: Prior correction should only use dev labels for estimating prior.
                 if config.apply_prior_correction:
-                    print(f"\n[Prior Correction] Applying prior correction to {dataset_config.name}")
-                    final_scores = apply_prior_correction(
-                        cal_labels, test_labels, calibrated_scores
-                    )
+                    if dataset_config.name == "Eval":
+                        print(f"\n[Prior Correction] WARNING: Using dev prior for Eval (no label peeking)")
+                        # Use dev prior for eval (proper evaluation)
+                        dev_prior = np.mean(cal_labels == 1)
+                        print(f"  - Dev set prior P(bonafide): {dev_prior:.4f}")
+                        print(f"  - Applying same prior assumption to Eval")
+                        # No correction needed if using same prior
+                        final_scores = calibrated_scores
+                    else:
+                        print(f"\n[Prior Correction] Applying prior correction to {dataset_config.name}")
+                        final_scores = apply_prior_correction(
+                            cal_labels, test_labels, calibrated_scores
+                        )
                 else:
                     final_scores = calibrated_scores
 
