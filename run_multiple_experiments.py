@@ -44,6 +44,8 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1.loss_type = "focal"
     exp1.focal_alpha = 0.3
     exp1.focal_gamma = 1.2
+    exp1.use_amp = False
+    exp1.grad_clip_norm = 0.0
     exp1.save_dir = "./focal_0.3_1.2_attention/"
     experiments.append(exp1)
 
@@ -51,12 +53,14 @@ def create_experiment_list() -> List[ModelArgs]:
     exp2 = ModelArgs()
     exp2.learning_rate = 1e-4
     exp2.weight_decay = 1e-2
-    exp2.pooling_method = "top-k"
+    exp2.pooling_method = "mean"
     exp2.top_k_ratio = 0.3
     exp2.loss_type = "focal"
     exp2.focal_alpha = 0.3
     exp2.focal_gamma = 1.2
-    exp2.save_dir = "./focal_0.3_1.2_top-k_0.3/"
+    exp2.use_amp = True
+    exp2.grad_clip_norm = 1.0
+    exp2.save_dir = "./focal_0.3_1.2_amp+clip/"
     experiments.append(exp2)
 
     # Experiment 3
@@ -68,6 +72,8 @@ def create_experiment_list() -> List[ModelArgs]:
     exp3.loss_type = "focal"
     exp3.focal_alpha = 0.3
     exp3.focal_gamma = 1.2
+    exp3.use_amp = False
+    exp3.grad_clip_norm = 0.0
     exp3.save_dir = "./focal_0.3_1.2_top-k_0.1/"
     experiments.append(exp3)
 
@@ -79,6 +85,8 @@ def create_experiment_list() -> List[ModelArgs]:
     exp4.loss_type = "ce"
     exp4.focal_alpha = 0.3
     exp4.focal_gamma = 1.2
+    exp4.use_amp = False
+    exp4.grad_clip_norm = 0.0
     exp4.save_dir = "./ce_attention/"
     experiments.append(exp4)
 
@@ -87,11 +95,13 @@ def create_experiment_list() -> List[ModelArgs]:
     exp5.learning_rate = 1e-4
     exp5.weight_decay = 1e-2
     exp5.pooling_method = "top-k"
-    exp5.top_k_ratio = 0.3
+    exp5.top_k_ratio = 0.1
     exp5.loss_type = "ce"
     exp5.focal_alpha = 0.3
     exp5.focal_gamma = 1.2
-    exp5.save_dir = "./ce_top-k_0.3/"
+    exp5.use_amp = False
+    exp5.grad_clip_norm = 0.0
+    exp5.save_dir = "./ce_top-k_0.1/"
     experiments.append(exp5)
 
     return experiments
@@ -176,6 +186,8 @@ def run_single_experiment(
     model_args.dim_feedforward = args.dim_feedforward
     model_args.dropout = args.model_dropout
     model_args.activation = args.activation
+    model_args.pooling_method = args.pooling_method
+    model_args.top_k_ratio = args.top_k_ratio
 
     model = create_model(model_args)
     model = model.to(device)
@@ -254,6 +266,23 @@ def run_single_experiment(
     print(f"[✓] Optimizer and scheduler created")
 
     # ========================================================================
+    # Step 4.5: Create GradScaler for AMP
+    # ========================================================================
+    if args.use_amp:
+        print("\n" + "="*80)
+        print("STEP 4.5: SETTING UP MIXED PRECISION TRAINING")
+        print("="*80)
+        print(f"  - AMP enabled: {args.use_amp}")
+        print(f"  - Gradient clipping norm: {args.grad_clip_norm}")
+        scaler = torch.cuda.amp.GradScaler()
+        print(f"[✓] GradScaler created for AMP")
+    else:
+        scaler = None
+        print("\n[INFO] AMP disabled, using full precision training")
+        if args.grad_clip_norm > 0:
+            print(f"  - Gradient clipping norm: {args.grad_clip_norm}")
+
+    # ========================================================================
     # Step 5: Training Loop
     # ========================================================================
     print("\n" + "="*80)
@@ -280,7 +309,7 @@ def run_single_experiment(
         # Train
         train_loss, train_metrics = train_one_epoch(
             model, train_loader, criterion, optimizer,
-            device, epoch
+            device, epoch, args.use_amp, args.grad_clip_norm, scaler
         )
 
         print(f"\nTrain Loss: {train_loss:.6f}")
@@ -415,7 +444,10 @@ def run_single_experiment(
             'dim_feedforward': args.dim_feedforward,
             'dropout': args.model_dropout,
             'learning_rate': args.learning_rate,
-            'loss_type': args.loss_type
+            'loss_type': args.loss_type,
+            'pooling_method': args.pooling_method,
+            'use_amp': args.use_amp,
+            'grad_clip_norm': args.grad_clip_norm
         }
     }
 
