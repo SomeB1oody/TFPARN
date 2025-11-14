@@ -35,7 +35,7 @@ class SpeechClassifierArgs:
     activation: str = "relu"
 
     # Pooling method: "mean", "attention", "top-k"
-    pooling_method: str = "attention"
+    pooling_method: str = "mean"
     top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
 
 
