@@ -40,11 +40,11 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1 = ModelArgs()
     exp1.learning_rate = 1e-4
     exp1.weight_decay = 1e-2
-    exp1.pooling_method = "attention"
+    exp1.pooling_method = "mean"
     exp1.loss_type = "focal"
-    exp1.focal_alpha = 0.3
-    exp1.focal_gamma = 1.2
-    exp1.save_dir = "./focal_0.3_1.2_attention/"
+    exp1.focal_alpha = 0.1
+    exp1.focal_gamma = 2.0
+    exp1.save_dir = "./focal_0.1_2.0/"
     experiments.append(exp1)
 
     # Experiment 2
@@ -63,35 +63,36 @@ def create_experiment_list() -> List[ModelArgs]:
     exp3 = ModelArgs()
     exp3.learning_rate = 1e-4
     exp3.weight_decay = 1e-2
-    exp3.pooling_method = "top-k"
+    exp3.pooling_method = "mean"
     exp3.top_k_ratio = 0.1
-    exp3.loss_type = "focal"
+    exp3.loss_type = "bce"
     exp3.focal_alpha = 0.3
     exp3.focal_gamma = 1.2
-    exp3.save_dir = "./focal_0.3_1.2_top-k_0.1/"
+    exp3.save_dir = "./bce/"
     experiments.append(exp3)
 
     # Experiment 4
     exp4 = ModelArgs()
     exp4.learning_rate = 1e-4
     exp4.weight_decay = 1e-2
-    exp4.pooling_method = "attention"
-    exp4.loss_type = "ce"
+    exp4.pooling_method = "mean"
+    exp4.loss_type = "focal"
+    exp4.pairwise_weight = 0.5
+    exp4.pairwise_margin = 1.5
     exp4.focal_alpha = 0.3
     exp4.focal_gamma = 1.2
-    exp4.save_dir = "./ce_attention/"
+    exp4.save_dir = "./focal_0.3_1.2_bigger_pairwise/"
     experiments.append(exp4)
 
     # Experiment 5
     exp5 = ModelArgs()
     exp5.learning_rate = 1e-4
     exp5.weight_decay = 1e-2
-    exp5.pooling_method = "top-k"
-    exp5.top_k_ratio = 0.3
-    exp5.loss_type = "ce"
-    exp5.focal_alpha = 0.3
-    exp5.focal_gamma = 1.2
-    exp5.save_dir = "./ce_top-k_0.3/"
+    exp5.pooling_method = "attention"
+    exp5.loss_type = "focal"
+    exp5.focal_alpha = 0.1
+    exp5.focal_gamma = 2.0
+    exp5.save_dir = "./focal_0.1_2.0_attention/"
     experiments.append(exp5)
 
     return experiments
