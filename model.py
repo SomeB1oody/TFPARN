@@ -31,7 +31,7 @@ class SpeechClassifierArgs:
     nhead: int = 8
     num_layers: int = 6
     dim_feedforward: int = 1024
-    dropout: float = 0.1
+    dropout: float = 0.3
     activation: str = "relu"
 
     # Pooling method: "mean", "attention", "top-k"
@@ -140,8 +140,9 @@ class SpeechTransformerClassifier(nn.Module):
         # Register Hann window as buffer to avoid creating it every forward pass
         self.register_buffer('hann', torch.hann_window(args.n_fft))
 
-        # Input normalization layer
-        self.input_norm = nn.LayerNorm(args.n_mels)
+        # Input normalization layer (with larger eps for numerical stability in AMP)
+        # Using larger eps to prevent division by near-zero variance in FP16
+        self.input_norm = nn.LayerNorm(args.n_mels, eps=1e-5)
 
         # Feature projection layer: [B, T', n_mels] -> [B, T', d_model]
         self.feature_projection = nn.Linear(args.n_mels, args.d_model)
@@ -246,43 +247,51 @@ class SpeechTransformerClassifier(nn.Module):
         """
         Compute log-mel spectrogram
 
+        Note: This function disables AMP (autocast) because STFT and log operations
+        can produce NaN in FP16. The computation is forced to FP32.
+
         Args:
             waveforms: [B, 1, T] mono waveform
 
         Returns:
             [B, T', n_mels] where T' = T // hop_length
         """
-        # Remove channel dimension: [B, 1, T] -> [B, T]
-        if waveforms.dim() == 3:
-            waveforms = waveforms.squeeze(1)
+        # Disable autocast for mel-spectrogram computation (force FP32)
+        with torch.cuda.amp.autocast(enabled=False):
+            # Ensure waveforms are in FP32
+            waveforms = waveforms.float()
 
-        # STFT (use precomputed Hann window buffer)
-        stft = torch.stft(
-            waveforms,
-            n_fft=self.n_fft,
-            hop_length=self.hop_length,
-            win_length=self.n_fft,
-            window=self.hann,
-            center=True,
-            return_complex=True
-        )  # [B, n_fft // 2 + 1, T']
+            # Remove channel dimension: [B, 1, T] -> [B, T]
+            if waveforms.dim() == 3:
+                waveforms = waveforms.squeeze(1)
 
-        # Compute power spectrogram
-        power_spec = torch.abs(stft) ** 2  # [B, n_fft // 2 + 1, T']
+            # STFT (use precomputed Hann window buffer)
+            stft = torch.stft(
+                waveforms,
+                n_fft=self.n_fft,
+                hop_length=self.hop_length,
+                win_length=self.n_fft,
+                window=self.hann,
+                center=True,
+                return_complex=True
+            )  # [B, n_fft // 2 + 1, T']
 
-        # Apply mel filterbank
-        mel_spec = torch.matmul(
-            self.mel_basis.to(power_spec.device),
-            power_spec
-        )  # [B, n_mels, T']
+            # Compute power spectrogram
+            power_spec = torch.abs(stft) ** 2  # [B, n_fft // 2 + 1, T']
 
-        # Convert to log scale (dB)
-        mel_spec = torch.clamp(mel_spec, min=1e-10)
-        log_mel_spec = 10.0 * torch.log10(mel_spec + 1e-10)
-        log_mel_spec = torch.clamp(log_mel_spec, min=-80.0, max=0.0) / 10.0
+            # Apply mel filterbank
+            mel_spec = torch.matmul(
+                self.mel_basis.to(power_spec.device),
+                power_spec
+            )  # [B, n_mels, T']
 
-        # Transpose to [B, T', n_mels]
-        log_mel_spec = log_mel_spec.transpose(1, 2)
+            # Convert to log scale (dB)
+            mel_spec = torch.clamp(mel_spec, min=1e-10)
+            log_mel_spec = 10.0 * torch.log10(mel_spec + 1e-10)
+            log_mel_spec = torch.clamp(log_mel_spec, min=-80.0, max=0.0) / 10.0
+
+            # Transpose to [B, T', n_mels]
+            log_mel_spec = log_mel_spec.transpose(1, 2)
 
         return log_mel_spec
 
@@ -324,14 +333,16 @@ class SpeechTransformerClassifier(nn.Module):
                    - logits[:, 0]: spoof score
                    - logits[:, 1]: bonafide score
         """
-        # 1. Extract log-mel spectrogram
-        log_mel = self._compute_mel_spectrogram(waveforms)  # [B, T', n_mels]
+        # 1. Extract log-mel spectrogram (FP32, see _compute_mel_spectrogram)
+        log_mel = self._compute_mel_spectrogram(waveforms)  # [B, T', n_mels], FP32
 
-        # 2. Input normalization
-        log_mel = self.input_norm(log_mel)  # [B, T', n_mels]
+        # 2. Input normalization (keep in FP32 to prevent gradient NaN)
+        # LayerNorm is sensitive to FP16 precision, especially for gradients
+        with torch.cuda.amp.autocast(enabled=False):
+            log_mel = self.input_norm(log_mel.float())  # [B, T', n_mels], FP32
 
-        # 3. Feature projection
-        features = self.feature_projection(log_mel)  # [B, T', d_model]
+        # 3. Feature projection (can use AMP from here)
+        features = self.feature_projection(log_mel)  # [B, T', d_model], FP16 in AMP
 
         # 4. Positional encoding
         features = self.pos_encoder(features)  # [B, T', d_model]

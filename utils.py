@@ -177,8 +177,11 @@ class FocalLoss(nn.Module):
         Returns:
             loss: scalar
         """
-        # Compute softmax probabilities
+        # Compute softmax probabilities with numerical stability
         probs = F.softmax(logits, dim=1)
+
+        # Clamp probabilities to avoid log(0) issues
+        probs = torch.clamp(probs, min=1e-7, max=1.0 - 1e-7)
 
         # Gather probabilities for true labels
         labels_one_hot = F.one_hot(labels, num_classes=logits.shape[1]).float()
@@ -186,7 +189,7 @@ class FocalLoss(nn.Module):
 
         # Compute focal loss
         alpha_t = (self.alpha.to(logits.device) * labels_one_hot).sum(dim=1)
-        focal_weight = alpha_t * (1 - probs_t) ** self.gamma
+        focal_weight = alpha_t * torch.clamp((1 - probs_t) ** self.gamma, min=1e-7)
         ce_loss = F.cross_entropy(logits, labels, reduction='none')
 
         focal_loss = focal_weight * ce_loss

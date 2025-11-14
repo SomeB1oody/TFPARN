@@ -45,20 +45,20 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./focal_0.3_1.2_with_pairwise/best_model_eer_0.1232/best_model_eer_0.1232.pt"
+    model_path: str = "./focal_0.3_1.2_attention/best_model_eer_0.1267.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
         DatasetConfig(
             name="Train",
-            data_dir="H:/true_tone5/data/flac_T/",
-            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.train.tsv",
+            data_dir="N:/Dataset/ASV5/flac_T/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.train.tsv",
             use_tta=False,
         ),
         DatasetConfig(
             name="Dev",
-            data_dir="H:/true_tone5/data/flac_D/",
-            protocol_dir="H:/true_tone5/data/ASVspoof5_protocols/ASVspoof5.dev.track_1.tsv",
+            data_dir="N:/Dataset/ASV5/flac_D/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv",
             use_tta=True,
         ),
 
@@ -71,7 +71,7 @@ class EvaluationConfig:
     normalize: bool = True
 
     # Evaluation parameters
-    batch_size: int = 32  # Batch size
+    batch_size: int = 192  # Batch size
     num_workers: int = 8  # Number of data loading workers
     prefetch_factor: int = 2
     pin_memory: bool = True
