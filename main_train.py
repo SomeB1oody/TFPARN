@@ -46,7 +46,7 @@ class ModelArgs:
     duration_sec: float = 4.0
     mono: bool = True
     normalize: bool = True
-    batch_size: int = 128
+    batch_size: int = 96
     num_workers: int = 8
     prefetch_factor: int = 2
     pin_memory: bool = True
@@ -74,10 +74,6 @@ class ModelArgs:
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
     scheduler_warmup_epochs: int = 5
 
-    # Mixed Precision Training
-    use_amp: bool = True  # Enable Automatic Mixed Precision (AMP)
-    grad_clip_norm: float = 1.0  # Gradient clipping norm (set 0 to disable)
-
     # Loss Function ('ce', 'bce', or 'focal')
     loss_type: str = "focal"
     use_class_weights: bool = True  # Whether to use class weights for CE and BCE
@@ -95,7 +91,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./focal_0.3_1.2_amp+clip/"
+    save_dir: str = "./focal_0.3_1.2/"
 
     # Other
     seed: int = 42
@@ -112,9 +108,6 @@ def train_one_epoch(
     optimizer: torch.optim.Optimizer,
     device: torch.device,
     epoch: int,
-    use_amp: bool = False,
-    grad_clip_norm: float = 0.0,
-    scaler: torch.cuda.amp.GradScaler = None,
 ) -> Tuple[float, Dict[str, float]]:
     """
     Train for one epoch
@@ -126,9 +119,6 @@ def train_one_epoch(
         optimizer: Optimizer
         device: Device to train on
         epoch: Current epoch number
-        use_amp: Whether to use Automatic Mixed Precision
-        grad_clip_norm: Gradient clipping norm (0 to disable)
-        scaler: GradScaler for AMP (required if use_amp=True)
 
     Returns:
         (average_loss, metrics)
@@ -137,7 +127,6 @@ def train_one_epoch(
     total_loss = 0.0
     all_logits = []
     all_labels = []
-    skipped_batches = 0
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} [TRAIN]", dynamic_ncols=True)
     for batch_idx, batch in enumerate(pbar):
@@ -147,156 +136,27 @@ def train_one_epoch(
 
         optimizer.zero_grad()
 
-        # Forward pass with AMP
-        # Note: AMP starts after mel-spectrogram computation in model
-        if use_amp:
-            with torch.cuda.amp.autocast():
-                logits = model(waveforms, lengths)
-                loss = criterion(logits, labels)
+        # Forward pass
+        logits = model(waveforms, lengths)
+        loss = criterion(logits, labels)
 
-            # Check for NaN/Inf in loss
-            if torch.isnan(loss) or torch.isinf(loss):
-                print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected in loss (value={loss.item():.6f})")
-                print(f"  - Logits stats: min={logits.min().item():.4f}, max={logits.max().item():.4f}, mean={logits.mean().item():.4f}")
-                print(f"  - Labels: {labels.cpu().numpy()}")
-                print(f"  - Skipping this batch...")
-                skipped_batches += 1
-                continue
+        # Backward pass
+        loss.backward()
+        optimizer.step()
 
-            # Check for NaN/Inf in logits
-            if torch.isnan(logits).any() or torch.isinf(logits).any():
-                print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected in logits")
-                print(f"  - NaN count: {torch.isnan(logits).sum().item()}")
-                print(f"  - Inf count: {torch.isinf(logits).sum().item()}")
-                print(f"  - Skipping this batch...")
-                skipped_batches += 1
-                continue
-
-            # Backward pass with gradient scaling
-            scaler.scale(loss).backward()
-
-            # Unscale gradients before clipping (must do this before clip_grad_norm_)
-            scaler.unscale_(optimizer)
-
-            # Check for NaN/Inf in model parameters and gradients BEFORE clipping
-            has_nan_params = False
-            has_nan_grads = False
-            first_nan_grad = None
-
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    # Check parameters
-                    if torch.isnan(param).any() or torch.isinf(param).any():
-                        if not has_nan_params:
-                            print(f"\n[WARNING] Batch {batch_idx}: First NaN/Inf in parameter '{name}'")
-                        has_nan_params = True
-                    # Check gradients
-                    if param.grad is not None:
-                        if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
-                            if not has_nan_grads:
-                                first_nan_grad = name
-                            has_nan_grads = True
-
-            if has_nan_params or has_nan_grads:
-                print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected")
-                print(f"  - Loss: {loss.item():.6f}")
-                print(f"  - Logits: min={logits.min().item():.4f}, max={logits.max().item():.4f}, mean={logits.mean().item():.4f}")
-                if has_nan_params:
-                    print(f"  - NaN in parameters detected")
-                if has_nan_grads:
-                    print(f"  - NaN in gradients detected (first: {first_nan_grad})")
-                print(f"  - GradScaler scale: {scaler.get_scale():.1f}")
-                print(f"  - Skipping batch, scaler will adjust...")
-                optimizer.zero_grad()
-                scaler.update()
-                skipped_batches += 1
-                continue  # Skip this batch completely, don't collect metrics
-
-            # Optimizer step with scaler (gradients already unscaled)
-            scaler.step(optimizer)
-            scaler.update()
-
-            # Update metrics (only after successful optimization)
-            total_loss += loss.item()
-            all_logits.append(logits.detach().cpu())
-            all_labels.append(labels.detach().cpu())
-        else:
-            # Normal training without AMP
-            logits = model(waveforms, lengths)
-            loss = criterion(logits, labels)
-
-            # Check for NaN/Inf in loss
-            if torch.isnan(loss) or torch.isinf(loss):
-                print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected in loss (value={loss.item():.6f})")
-                print(f"  - Logits stats: min={logits.min().item():.4f}, max={logits.max().item():.4f}, mean={logits.mean().item():.4f}")
-                print(f"  - Labels: {labels.cpu().numpy()}")
-                print(f"  - Skipping this batch...")
-                skipped_batches += 1
-                continue
-
-            # Check for NaN/Inf in logits
-            if torch.isnan(logits).any() or torch.isinf(logits).any():
-                print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected in logits")
-                print(f"  - NaN count: {torch.isnan(logits).sum().item()}")
-                print(f"  - Inf count: {torch.isinf(logits).sum().item()}")
-                print(f"  - Skipping this batch...")
-                skipped_batches += 1
-                continue
-
-            loss.backward()
-
-            # Gradient clipping
-            if grad_clip_norm > 0:
-                grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
-
-                # Check for NaN/Inf in gradients
-                if torch.isnan(grad_norm) or torch.isinf(grad_norm):
-                    print(f"\n[WARNING] Batch {batch_idx}: NaN/Inf detected in gradients (norm={grad_norm.item():.4f})")
-                    print(f"  - Loss: {loss.item():.6f}")
-                    print(f"  - Skipping this batch...")
-                    optimizer.zero_grad()
-                    skipped_batches += 1
-                    continue
-
-            optimizer.step()
-
-            # Update metrics (only after successful optimization)
-            total_loss += loss.item()
-            all_logits.append(logits.detach().cpu())
-            all_labels.append(labels.detach().cpu())
+        # Update metrics
+        total_loss += loss.item()
+        all_logits.append(logits.detach().cpu())
+        all_labels.append(labels.detach().cpu())
 
         # Update progress bar
-        avg_loss = total_loss / (batch_idx + 1 - skipped_batches) if (batch_idx + 1 - skipped_batches) > 0 else 0
-        pbar.set_postfix({'loss': f'{loss.item():.5f}', 'avg_loss': f'{avg_loss:.5f}', 'skipped': skipped_batches})
-
-    # Print summary if any batches were skipped
-    if skipped_batches > 0:
-        print(f"\n[INFO] Epoch {epoch}: Skipped {skipped_batches}/{len(train_loader)} batches due to NaN/Inf")
+        avg_loss = total_loss / (batch_idx + 1)
+        pbar.set_postfix({'loss': f'{loss.item():.5f}', 'avg_loss': f'{avg_loss:.5f}'})
 
     # Compute epoch metrics
-    avg_loss = total_loss / (len(train_loader) - skipped_batches) if (len(train_loader) - skipped_batches) > 0 else 0
-
-    # Safety check: ensure we have collected some valid data
-    if len(all_logits) == 0:
-        print(f"\n[ERROR] No valid batches in epoch {epoch}! All batches were skipped.")
-        # Return dummy metrics to avoid crash
-        return float('inf'), {
-            'accuracy': 0.0, 'f1_macro': 0.0, 'recall_macro': 0.0,
-            'eer': 1.0, 'auc_roc': 0.0, 'min_tdcf': 1.0
-        }
-
+    avg_loss = total_loss / len(train_loader)
     all_logits = torch.cat(all_logits, dim=0)
     all_labels = torch.cat(all_labels, dim=0)
-
-    # Final safety check: verify no NaN in collected logits
-    if torch.isnan(all_logits).any():
-        nan_count = torch.isnan(all_logits).sum().item()
-        print(f"\n[WARNING] Found {nan_count} NaN values in collected logits! Filtering them out...")
-        valid_mask = ~torch.isnan(all_logits).any(dim=1)
-        all_logits = all_logits[valid_mask]
-        all_labels = all_labels[valid_mask]
-        print(f"  - Kept {len(all_logits)}/{len(valid_mask)} valid samples")
-
     metrics = compute_all_metrics(all_logits, all_labels)
 
     return avg_loss, metrics
@@ -539,29 +399,6 @@ def main():
     print(f"[✓] Optimizer and scheduler created")
 
     # ========================================================================
-    # Step 4.5: Create GradScaler for AMP
-    # ========================================================================
-    if args.use_amp:
-        print("\n" + "="*80)
-        print("STEP 4.5: SETTING UP MIXED PRECISION TRAINING")
-        print("="*80)
-        print(f"  - AMP enabled: {args.use_amp}")
-        print(f"  - Gradient clipping norm: {args.grad_clip_norm}")
-        # Use more conservative GradScaler settings to prevent overflow
-        scaler = torch.cuda.amp.GradScaler(
-            init_scale=2.**15,      # Start with smaller scale (default is 2^16)
-            growth_factor=2.0,      # Default is 2.0
-            backoff_factor=0.5,     # Default is 0.5
-            growth_interval=2000    # Increase scale less frequently (default is 2000)
-        )
-        print(f"[✓] GradScaler created with conservative settings")
-    else:
-        scaler = None
-        print("\n[INFO] AMP disabled, using full precision training")
-        if args.grad_clip_norm > 0:
-            print(f"  - Gradient clipping norm: {args.grad_clip_norm}")
-
-    # ========================================================================
     # Step 5: Training Loop
     # ========================================================================
     print("\n" + "="*80)
@@ -595,7 +432,7 @@ def main():
         # Train
         train_loss, train_metrics = train_one_epoch(
             model, train_loader, criterion, optimizer,
-            device, epoch, args.use_amp, args.grad_clip_norm, scaler
+            device, epoch
         )
 
         print(f"\nTrain Loss: {train_loss:.6f}")
