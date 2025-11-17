@@ -39,7 +39,7 @@ def set_seed(seed: int = 42) -> None:
     # Ensure cudnn determinism (may reduce performance)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-    print(f" Random seed fixed to {seed}")
+    print(f"[Seed] Random seed fixed to {seed}")
 
 
 # ============================================================================
@@ -232,7 +232,7 @@ def create_loss_function(
     Create loss function based on type
 
     Args:
-        loss_type: 'ce', 'bce', or 'focal'
+        loss_type: 'ce' or 'focal'
         focal_alpha: Alpha parameter for focal loss [num_classes]
         focal_gamma: Gamma parameter for focal loss
         enable_pairwise: Whether to add pairwise ranking loss
@@ -249,10 +249,6 @@ def create_loss_function(
         print(f"  - Type: Cross Entropy (no class weights)")
         main_criterion = nn.CrossEntropyLoss()
 
-    elif loss_type == 'bce':
-        print(f"  - Type: Binary Cross Entropy (no class weights)")
-        main_criterion = nn.BCELoss()
-
     elif loss_type == 'focal':
         print(f"  - Type: Focal Loss")
         print(f"  - Alpha: {focal_alpha.tolist()}")
@@ -260,7 +256,7 @@ def create_loss_function(
         main_criterion = FocalLoss(focal_alpha, focal_gamma)
 
     else:
-        raise ValueError(f"Unknown loss type: {loss_type}. Use 'ce', 'bce', or 'focal'")
+        raise ValueError(f"Unknown loss type: {loss_type}. Use 'ce' or 'focal'")
 
     # Add pairwise ranking loss if enabled
     if enable_pairwise:

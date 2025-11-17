@@ -74,7 +74,7 @@ class ModelArgs:
     scheduler_type: str = "cosine"  # 'cosine', 'step', or 'none'
     scheduler_warmup_epochs: int = 5
 
-    # Loss Function ('ce', 'bce', or 'focal')
+    # Loss Function ('ce' or 'focal')
     loss_type: str = "focal"
     focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 1.2  # Gamma for focal loss
