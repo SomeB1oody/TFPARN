@@ -54,8 +54,8 @@ class ModelArgs:
     train_shuffle: bool = True
 
     # Model Parameters (from model.py)
-    n_mels: int = 128
-    n_fft: int = 768
+    n_mels: int = 160
+    n_fft: int = 1024
     hop_length: int = 160
     d_model: int = 256
     nhead: int = 8
@@ -67,7 +67,7 @@ class ModelArgs:
     top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
-    max_epochs: int = 200
+    max_epochs: int = 80
     learning_rate: float = 1e-4
     weight_decay: float = 1e-2
     optimizer_type: str = "adamw"  # 'adam' or 'adamw'
@@ -76,7 +76,6 @@ class ModelArgs:
 
     # Loss Function ('ce', 'bce', or 'focal')
     loss_type: str = "focal"
-    use_class_weights: bool = True  # Whether to use class weights for CE and BCE
     focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 1.2  # Gamma for focal loss
 
@@ -91,7 +90,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./focal_0.3_1.2/"
+    save_dir: str = "./checkpoints/"
 
     # Other
     seed: int = 42
@@ -131,13 +130,12 @@ def train_one_epoch(
     pbar = tqdm(train_loader, desc=f"Epoch {epoch} [TRAIN]", dynamic_ncols=True)
     for batch_idx, batch in enumerate(pbar):
         waveforms = batch['waveforms'].to(device)
-        lengths = batch['lengths'].to(device)
         labels = batch['labels'].to(device)
 
         optimizer.zero_grad()
 
         # Forward pass
-        logits = model(waveforms, lengths)
+        logits = model(waveforms)
         loss = criterion(logits, labels)
 
         # Backward pass
@@ -205,7 +203,7 @@ def validate(
                 lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
 
                 # Forward pass on all crops
-                logits_flat = model(waveforms_flat, lengths_flat)  # [B*num_crops, 2]
+                logits_flat = model(waveforms_flat)
 
                 # Reshape back to [B, num_crops, 2]
                 logits_crops = logits_flat.view(B, num_crops, 2)
@@ -288,7 +286,7 @@ def main():
     data_args.tta_num_crops = 5  # Number of crops per sample
 
     # Load data
-    train_loader, dev_loader, eval_loader, class_weights = make_loaders(data_args)
+    train_loader, dev_loader, eval_loader = make_loaders(data_args)
 
     # ========================================================================
     # Step 2: Create Model
@@ -331,10 +329,8 @@ def main():
         focal_alpha = torch.tensor([1.0 - args.focal_alpha, args.focal_alpha], dtype=torch.float32)
         criterion = create_loss_function(
             args.loss_type,
-            class_weights,
-            use_class_weights=args.use_class_weights,
-            focal_alpha=focal_alpha,
-            focal_gamma=args.focal_gamma,
+            focal_alpha,
+            args.focal_gamma,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight
@@ -342,8 +338,6 @@ def main():
     else:
         criterion = create_loss_function(
             args.loss_type,
-            class_weights,
-            use_class_weights=args.use_class_weights,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight
@@ -513,7 +507,7 @@ def main():
     # Recreate data loaders with TTA enabled for final evaluation
     print("\n[INFO] Recreating data loaders with TTA enabled for final evaluation")
     data_args.use_tta = True
-    _, dev_loader_tta, eval_loader_tta, _ = make_loaders(data_args)
+    _, dev_loader_tta, eval_loader_tta = make_loaders(data_args)
 
     # Use complete evaluation pipeline with calibration (with TTA-enabled loaders)
     results = evaluate_with_calibration(

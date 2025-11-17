@@ -45,7 +45,7 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./focal_0.3_1.2_attention/best_model_eer_0.1267.pt"
+    model_path: str = "./final_nc/focal_0.3_1.2/best_model.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
@@ -66,20 +66,20 @@ class EvaluationConfig:
 
     # Audio processing parameters
     sample_rate: int = 16000
-    duration_sec: float = 4.0
+    duration_sec: float = 2.0
     mono: bool = True
     normalize: bool = True
 
     # Evaluation parameters
-    batch_size: int = 192  # Batch size
+    batch_size: int = 256  # Batch size
     num_workers: int = 8  # Number of data loading workers
     prefetch_factor: int = 2
     pin_memory: bool = True
     persistent_workers: bool = True
 
     # Model architecture parameters (should match training)
-    n_mels: int = 128
-    n_fft: int = 768
+    n_mels: int = 160
+    n_fft: int = 1024
     hop_length: int = 160
     d_model: int = 256
     nhead: int = 8

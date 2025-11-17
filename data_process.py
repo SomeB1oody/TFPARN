@@ -726,16 +726,15 @@ def get_class_weights(items: List[Dict[str, Any]]) -> torch.Tensor:
 # Main Function: Build DataLoaders
 # ============================================================================
 
-def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor]:
+def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
-    Build train, dev, eval DataLoaders and class weights
+    Build train, dev, eval DataLoaders
 
     Args:
         args: Argument object containing all fields in DefaultArgs
 
     Returns:
-        (train_loader, dev_loader, eval_loader, class_weights)
-        class_weights: FloatTensor [2] - Class weights for loss function
+        (train_loader, dev_loader, eval_loader)
 
     Raises:
         FileNotFoundError: Protocol file or audio directory not found
@@ -746,7 +745,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
     print("="*80)
 
     # Parse protocols
-    print(f"\n[Step 1/4] Parsing protocol files")
+    print(f"\n[Step 1/3] Parsing protocol files")
     print(f"  - Train protocol: {args.train_protocol_dir}")
     train_items = read_protocol(args.train_protocol_dir)
 
@@ -757,7 +756,7 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
     eval_items = read_protocol(args.eval_protocol_dir)
 
     # Build datasets
-    print(f"\n[Step 2/4] Building datasets")
+    print(f"\n[Step 2/3] Building datasets")
 
     train_dataset = ASV5Dataset(
         data_dir=args.train_data_dir,
@@ -813,12 +812,8 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
         dev_collate_fn = collate_fn
         eval_collate_fn = collate_fn
 
-    # Calculate class weights
-    print(f"\n[Step 3/4] Calculating class weights from training set")
-    class_weights = get_class_weights(train_items)
-
     # Build DataLoaders
-    print(f"\n[Step 4/4] Building DataLoaders")
+    print(f"\n[Step 3/3] Building DataLoaders")
     print(f"  Configuration:")
     print(f"    - Batch size: {args.batch_size}")
     print(f"    - Num workers: {args.num_workers}")
@@ -870,12 +865,11 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader, torch.Tensor
     print(f"  - Train: {len(train_dataset)} samples, {len(train_loader)} batches")
     print(f"  - Dev: {len(dev_dataset)} samples, {len(dev_loader)} batches")
     print(f"  - Eval: {len(eval_dataset)} samples, {len(eval_loader)} batches")
-    print(f"  - Class weights: spoof={class_weights[0]:.4f}, bonafide={class_weights[1]:.4f}")
     if args.use_tta:
         print(f"  - TTA: {args.tta_num_crops} crops per sample")
     print("="*80 + "\n")
 
-    return train_loader, dev_loader, eval_loader, class_weights
+    return train_loader, dev_loader, eval_loader
 
 
 # ============================================================================
@@ -897,7 +891,7 @@ if __name__ == "__main__":
 
     try:
         # Build loaders
-        train_loader, dev_loader, eval_loader, class_weights = make_loaders(args)
+        train_loader, dev_loader, eval_loader = make_loaders(args)
 
         # Test loading one batch
         print("\n[Test] Loading one batch from train_loader...")

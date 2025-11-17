@@ -36,7 +36,7 @@ class SpeechClassifierArgs:
 
     # Pooling method: "mean", "attention", "top-k"
     pooling_method: str = "mean"
-    top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
+    top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
 
 
 # ============================================================================
@@ -310,14 +310,12 @@ class SpeechTransformerClassifier(nn.Module):
     def forward(
         self,
         waveforms: torch.Tensor,
-        lengths: torch.Tensor
     ) -> torch.Tensor:
         """
         Forward pass
 
         Args:
             waveforms: FloatTensor [B, 1, T] preprocessed mono waveform
-            lengths: LongTensor [B] actual waveform lengths
 
         Returns:
             logits: FloatTensor [B, 2]

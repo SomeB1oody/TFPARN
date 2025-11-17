@@ -42,33 +42,33 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1.weight_decay = 1e-2
     exp1.pooling_method = "mean"
     exp1.loss_type = "focal"
-    exp1.focal_alpha = 0.1
-    exp1.focal_gamma = 2.0
-    exp1.save_dir = "./focal_0.1_2.0/"
+    exp1.enable_pairwise = False
+    exp1.focal_alpha = 0.3
+    exp1.focal_gamma = 1.2
+    exp1.save_dir = "./final_nc/focal_0.3_1.2_no_pairwise/"
     experiments.append(exp1)
 
     # Experiment 2
     exp2 = ModelArgs()
     exp2.learning_rate = 1e-4
     exp2.weight_decay = 1e-2
-    exp2.pooling_method = "top-k"
-    exp2.top_k_ratio = 0.3
+    exp2.pooling_method = "attention"
     exp2.loss_type = "focal"
     exp2.focal_alpha = 0.3
     exp2.focal_gamma = 1.2
-    exp2.save_dir = "./focal_0.3_1.2_top-k_0.3/"
+    exp2.save_dir = "./final_nc/focal_0.3_1.2_attention/"
     experiments.append(exp2)
 
     # Experiment 3
     exp3 = ModelArgs()
     exp3.learning_rate = 1e-4
     exp3.weight_decay = 1e-2
-    exp3.pooling_method = "mean"
-    exp3.top_k_ratio = 0.1
-    exp3.loss_type = "bce"
-    exp3.focal_alpha = 0.3
-    exp3.focal_gamma = 1.2
-    exp3.save_dir = "./bce/"
+    exp3.pooling_method = "top-k"
+    exp3.loss_type = "focal"
+    exp3.top_k_ratio = 0.3
+    exp3.focal_alpha = 0.1
+    exp3.focal_gamma = 2.0
+    exp3.save_dir = "./final_nc/focal_0.3_1.2_top-k_0.3/"
     experiments.append(exp3)
 
     # Experiment 4
@@ -78,11 +78,11 @@ def create_experiment_list() -> List[ModelArgs]:
     exp4.pooling_method = "mean"
     exp4.loss_type = "focal"
     exp4.pairwise_weight = 0.5
-    exp4.pairwise_margin = 1.5
+    exp4.pairwise_margin = 1.0
     exp4.focal_alpha = 0.3
     exp4.focal_gamma = 1.2
-    exp4.save_dir = "./focal_0.3_1.2_bigger_pairwise/"
-    experiments.append(exp4)
+    exp4.save_dir = "./final_nc/focal_0.3_1.2_pairwise_0.5/"
+    #experiments.append(exp4)
 
     # Experiment 5
     exp5 = ModelArgs()
@@ -92,8 +92,8 @@ def create_experiment_list() -> List[ModelArgs]:
     exp5.loss_type = "focal"
     exp5.focal_alpha = 0.1
     exp5.focal_gamma = 2.0
-    exp5.save_dir = "./focal_0.1_2.0_attention/"
-    experiments.append(exp5)
+    exp5.save_dir = "./final_nc/focal_0.1_2.0_attention/"
+    #experiments.append(exp5)
 
     return experiments
 
@@ -157,7 +157,7 @@ def run_single_experiment(
     data_args.use_tta = True  # Enable TTA for training-time validation
     data_args.tta_num_crops = 5
 
-    train_loader, dev_loader, eval_loader, class_weights = make_loaders(data_args)
+    train_loader, dev_loader, eval_loader = make_loaders(data_args)
 
     # ========================================================================
     # Step 2: Create Model
@@ -177,6 +177,8 @@ def run_single_experiment(
     model_args.dim_feedforward = args.dim_feedforward
     model_args.dropout = args.model_dropout
     model_args.activation = args.activation
+    model_args.pooling_method = args.pooling_method
+    model_args.top_k_ratio = args.top_k_ratio
 
     model = create_model(model_args)
     model = model.to(device)
@@ -195,10 +197,8 @@ def run_single_experiment(
         focal_alpha = torch.tensor([1.0 - args.focal_alpha, args.focal_alpha], dtype=torch.float32)
         criterion = create_loss_function(
             args.loss_type,
-            class_weights,
-            use_class_weights=args.use_class_weights,
-            focal_alpha=focal_alpha,
-            focal_gamma=args.focal_gamma,
+            focal_alpha,
+            args.focal_gamma,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight
@@ -206,8 +206,6 @@ def run_single_experiment(
     else:
         criterion = create_loss_function(
             args.loss_type,
-            class_weights,
-            use_class_weights=args.use_class_weights,
             enable_pairwise=args.enable_pairwise,
             pairwise_margin=args.pairwise_margin,
             pairwise_weight=args.pairwise_weight
@@ -349,7 +347,7 @@ def run_single_experiment(
     # Recreate data loaders with TTA enabled for final evaluation
     print("\n[INFO] Recreating data loaders with TTA enabled for final evaluation")
     data_args.use_tta = True
-    _, dev_loader_tta, eval_loader_tta, _ = make_loaders(data_args)
+    _, dev_loader_tta, eval_loader_tta = make_loaders(data_args)
 
     # Evaluate with calibration (with TTA-enabled loaders)
     results = evaluate_with_calibration(
