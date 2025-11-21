@@ -41,12 +41,11 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1.learning_rate = 1e-4
     exp1.weight_decay = 1e-2
     exp1.pooling_method = "mean"
-    exp1.loss_type = "ce"
-    exp1.enable_pairwise = True
-    exp1.focal_alpha = 0.3
-    exp1.focal_gamma = 1.2
-    exp1.save_dir = "./final_nc/ce/"
-    experiments.append(exp1)
+    exp1.loss_type = "focal"
+    exp1.enable_pairwise = False
+    exp1.focal_alpha = 0.1
+    exp1.focal_gamma = 2.0
+    exp1.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_no_pairwise/"
 
     # Experiment 2
     exp2 = ModelArgs()
@@ -55,48 +54,51 @@ def create_experiment_list() -> List[ModelArgs]:
     exp2.pooling_method = "mean"
     exp2.loss_type = "focal"
     exp2.enable_pairwise = True
-    exp2.focal_alpha = 0.3
-    exp2.focal_gamma = 1.5
-    exp2.save_dir = "./final_nc/focal_0.3_1.5/"
-    experiments.append(exp2)
+    exp2.focal_alpha = 0.1
+    exp2.focal_gamma = 2.0
+    exp2.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0/"
 
     # Experiment 3
     exp3 = ModelArgs()
     exp3.learning_rate = 1e-4
     exp3.weight_decay = 1e-2
-    exp3.pooling_method = "mean"
+    exp3.pooling_method = "attention"
     exp3.loss_type = "focal"
-    exp3.enable_pairwise = False
-    exp3.top_k_ratio = 0.3
-    exp3.focal_alpha = 0.3
-    exp3.focal_gamma = 1.2
-    exp3.save_dir = "./final_nc/focal_0.3_1.5_no_pairwise/"
-    experiments.append(exp3)
+    exp3.enable_pairwise = True
+    exp3.focal_alpha = 0.1
+    exp3.focal_gamma = 2.0
+    exp3.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_attention/"
 
     # Experiment 4
     exp4 = ModelArgs()
+    exp4.batch_size = 96
     exp4.learning_rate = 1e-4
     exp4.weight_decay = 1e-2
-    exp4.pooling_method = "mean"
+    exp4.pooling_method = "top-k"
     exp4.loss_type = "focal"
     exp4.enable_pairwise = True
-    exp4.pairwise_weight = 0.3
-    exp4.pairwise_margin = 1.0
     exp4.focal_alpha = 0.1
     exp4.focal_gamma = 2.0
-    exp4.save_dir = "./final_nc/focal_0.1_2.0/"
-    experiments.append(exp4)
+    exp4.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_top-k/"
 
     # Experiment 5
     exp5 = ModelArgs()
+    exp5.train_data_dir = "N:/Dataset/ASV5+2019LA_Train/flac_T/"
+    exp5.train_protocol_dir = "N:/Dataset/ASV5+2019LA_Train/ASV5+2019LA_Train.txt"
+    exp5.batch_size = 96
     exp5.learning_rate = 1e-4
     exp5.weight_decay = 1e-2
-    exp5.pooling_method = "mean"
+    exp5.pooling_method = "attention"
     exp5.loss_type = "focal"
-    exp5.enable_pairwise = False
-    exp5.focal_alpha = 0.5
-    exp5.focal_gamma = 1.2
-    exp5.save_dir = "./final_nc/focal_0.5_1.2_no_pairwise/"
+    exp5.enable_pairwise = True
+    exp5.focal_alpha = 0.1
+    exp5.focal_gamma = 2.0
+    exp5.save_dir = "./final_nc/ASV5+2019LA_Train/"
+
+    experiments.append(exp1)
+    experiments.append(exp2)
+    experiments.append(exp3)
+    experiments.append(exp4)
     experiments.append(exp5)
 
     return experiments

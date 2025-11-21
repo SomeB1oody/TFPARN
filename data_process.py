@@ -41,7 +41,7 @@ class DefaultArgs:
     sample_rate: int = 16000
     duration_sec: float = 4.0
     mono: bool = True
-    normalize: bool = True  # Normalize to [-1, 1]
+    normalize: bool = True
 
     # DataLoader parameters
     batch_size: int = 64
@@ -203,7 +203,7 @@ def read_protocol(protocol_path: str) -> List[Dict[str, Any]]:
         - codec_seed: Codec seed
         - attack_tag: Attack tag
         - attack_label: Attack label
-        - label: 0=spoof(fake), 1=bonafide(genuine)
+        - label: 0=spoof(AI-generated), 1=bonafide(genuine human)
     """
     print(f"\n{'='*80}")
     print(f"[Protocol Parsing] Reading: {protocol_path}")
@@ -243,11 +243,11 @@ def read_protocol(protocol_path: str) -> List[Dict[str, Any]]:
                     f"  File: {protocol_path}"
                 )
 
-            # Add .flac extension uniformly
+            # Add .flac extension if missing
             if not flac_name.endswith('.flac'):
                 flac_name = f"{flac_name}.flac"
 
-            # Convert label: spoof=0(fake), bonafide=1(genuine)
+            # Convert label: spoof=0(AI-generated), bonafide=1(genuine human)
             label = 1 if key == 'bonafide' else 0
 
             item = {
@@ -265,7 +265,7 @@ def read_protocol(protocol_path: str) -> List[Dict[str, Any]]:
 
     print(f"✓ Successfully parsed {len(items)} entries")
 
-    # Statistics
+    # Label distribution statistics
     bonafide_count = sum(1 for item in items if item['label'] == 1)
     spoof_count = len(items) - bonafide_count
     print(f"  - Bonafide (genuine human): {bonafide_count} ({100*bonafide_count/len(items):.2f}%)")
@@ -282,10 +282,10 @@ class ASV5Dataset(Dataset):
     """
     ASVspoof5 Dataset
 
-    Loads audio files, applies fixed-length processing using repetition strategy
+    Loads audio files and applies fixed-length processing (crop or repeat strategy)
     Returns dictionary with waveform, label, and metadata
 
-    Label mapping: spoof=0, bonafide=1
+    Label mapping: spoof(AI-generated)=0, bonafide(genuine human)=1
     """
 
     def __init__(
@@ -388,11 +388,11 @@ class ASV5Dataset(Dataset):
                 )
                 waveform = resampler(waveform)
 
-            # Convert to mono
+            # Convert to mono if needed
             if self.mono and waveform.shape[0] > 1:
                 waveform = torch.mean(waveform, dim=0, keepdim=True)
 
-            # Normalize to [-1, 1]
+            # Normalize amplitude to [-1, 1]
             if self.normalize:
                 max_val = torch.abs(waveform).max()
                 if max_val > 0:
@@ -424,11 +424,11 @@ class ASV5Dataset(Dataset):
 
     def _apply_fixed_length(self, waveform: torch.Tensor) -> torch.Tensor:
         """
-        Fixed-length processing: crop or repeat-concatenate to target length
+        Apply fixed-length processing to waveform
 
         Strategy:
-        - If audio is longer than target: crop (random for train, center for dev/eval)
-        - If audio is shorter than target: repeat-concatenate until reaching target length
+        - If longer than target: crop (random for train, center for dev/eval)
+        - If shorter than target: repeat audio and then crop to target length
 
         Args:
             waveform: [C, T]
@@ -691,8 +691,8 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 def get_class_weights(items: List[Dict[str, Any]]) -> torch.Tensor:
     """
-    Calculate class weights for loss function
-    Weight calculation: weight[i] = max_count / count[i]
+    Calculate class weights for addressing class imbalance
+    Weight formula: weight[i] = max_count / count[i]
 
     Args:
         items: List of protocol items

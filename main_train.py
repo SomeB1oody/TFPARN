@@ -64,7 +64,7 @@ class ModelArgs:
     model_dropout: float = 0.3
     activation: str = "relu"
     pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
-    top_k_ratio: float = 0.1  # For top-k pooling: ratio of frames to keep
+    top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
     max_epochs: int = 80
@@ -76,8 +76,8 @@ class ModelArgs:
 
     # Loss Function ('ce' or 'focal')
     loss_type: str = "focal"
-    focal_alpha: float = 0.3  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
-    focal_gamma: float = 1.2  # Gamma for focal loss
+    focal_alpha: float = 0.1  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
+    focal_gamma: float = 2.0  # Gamma for focal loss
 
     # Pairwise AUC/pAUC Loss
     enable_pairwise: bool = True  # Whether to enable pairwise loss
@@ -85,12 +85,12 @@ class ModelArgs:
     pairwise_weight: float = 0.3  # Weight for pairwise loss term
 
     # Early Stopping
-    early_stopping_patience: int = 20
+    early_stopping_patience: int = 15
     early_stopping_metric: str = "eer"  # Options: 'f1_macro', 'accuracy', 'recall_macro', 'eer', 'auc_roc'
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./checkpoints/"
+    save_dir: str = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_top-k/"
 
     # Other
     seed: int = 42
@@ -191,7 +191,6 @@ def validate(
         pbar = tqdm(val_loader, desc=f"Epoch {epoch} [VAL]", dynamic_ncols=True)
         for batch in pbar:
             waveforms = batch['waveforms'].to(device)
-            lengths = batch['lengths'].to(device)
             labels = batch['labels'].to(device)
 
             if use_tta:
@@ -200,7 +199,6 @@ def validate(
 
                 # Reshape to [B*num_crops, C, T] for batch processing
                 waveforms_flat = waveforms.view(B * num_crops, C, T)
-                lengths_flat = lengths.unsqueeze(1).expand(B, num_crops).reshape(B * num_crops)
 
                 # Forward pass on all crops
                 logits_flat = model(waveforms_flat)
@@ -212,7 +210,7 @@ def validate(
                 logits = logits_crops.mean(dim=1)  # [B, 2]
             else:
                 # Normal inference: waveforms shape [B, C, T]
-                logits = model(waveforms, lengths)
+                logits = model(waveforms)
 
             # Compute loss
             loss = criterion(logits, labels)
@@ -440,16 +438,16 @@ def main():
         print(f"\nValidation Loss: {val_loss:.6f}")
         print_metrics(val_metrics, prefix="  [VAL] ")
 
-        # Update scheduler (with warmup: LR scales linearly from 0 to target LR during warmup)
+        # Update learning rate with warmup
         if scheduler is not None:
             if epoch <= args.scheduler_warmup_epochs:
-                # Linear warmup phase
+                # Linear warmup: gradually increase LR from 0 to target
                 warmup_lr = args.learning_rate * epoch / args.scheduler_warmup_epochs
                 for param_group in optimizer.param_groups:
                     param_group['lr'] = warmup_lr
                 print(f"\nLearning rate (warmup): {warmup_lr:.8f}")
             else:
-                # After warmup, use scheduler
+                # After warmup, apply scheduler
                 scheduler.step()
                 current_lr = optimizer.param_groups[0]['lr']
                 print(f"\nLearning rate: {current_lr:.8f}")

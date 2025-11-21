@@ -36,7 +36,7 @@ def set_seed(seed: int = 42) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-    # Ensure cudnn determinism (may reduce performance)
+    # Ensure cudnn determinism for reproducibility
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     print(f"[Seed] Random seed fixed to {seed}")
@@ -101,10 +101,10 @@ class FocalLoss(nn.Module):
         Returns:
             loss: scalar
         """
-        # Compute softmax probabilities with numerical stability
+        # Compute softmax probabilities
         probs = F.softmax(logits, dim=1)
 
-        # Clamp probabilities to avoid log(0) issues
+        # Clamp probabilities for numerical stability
         probs = torch.clamp(probs, min=1e-7, max=1.0 - 1e-7)
 
         # Gather probabilities for true labels
@@ -123,11 +123,9 @@ class FocalLoss(nn.Module):
 
 class PairwiseRankingLoss(nn.Module):
     """
-    Pairwise ranking loss for AUC/pAUC optimization
+    Pairwise ranking loss for optimizing ranking-based metrics
 
-    Encourages bonafide samples to have higher scores than spoof samples
-    by a margin. This helps optimize ranking metrics like AUC.
-
+    Encourages bonafide samples to score higher than spoof samples by a margin
     Loss = max(0, margin - (score_bonafide - score_spoof))
 
     Args:
@@ -307,9 +305,9 @@ def compute_min_dcf(
     Args:
         scores: Prediction scores (higher = more likely bonafide)
         labels: Ground truth labels (0=spoof, 1=bonafide)
-        c_miss: Cost of miss (false negative)
-        c_fa: Cost of false alarm (false positive)
-        p_target: Prior probability of target (bonafide)
+        c_miss: Cost of missing a bonafide (false negative)
+        c_fa: Cost of false alarm on spoof (false positive)
+        p_target: Prior probability of bonafide
 
     Returns:
         (min_dcf, threshold)
@@ -376,16 +374,13 @@ def compute_cllr(
     """
     Compute Calibrated Log-Likelihood Ratio (CLLR) cost
 
-    CLLR measures the calibration quality of scores as posterior probabilities.
-    Lower values are better (0 is perfect, higher means worse calibration).
+    CLLR measures how well scores represent calibrated posterior probabilities
+    Lower values indicate better calibration (0 is perfect)
 
-    CLLR = 0.5 * (C_llr_target + C_llr_nontarget)
-    where:
-    - C_llr_target = mean(-log2(P(target|score))) for target samples
-    - C_llr_nontarget = mean(-log2(1 - P(target|score))) for nontarget samples
+    CLLR = 0.5 * (C_llr_bonafide + C_llr_spoof)
 
     Args:
-        scores: Posterior probability scores P(bonafide|x) in [0, 1] (higher = more likely bonafide)
+        scores: Posterior probability scores P(bonafide|x) in [0, 1]
         labels: Ground truth labels (0=spoof, 1=bonafide)
 
     Returns:
@@ -422,14 +417,10 @@ def compute_prior_log_odds_shift(
     prior_eval: float
 ) -> float:
     """
-    Compute log-odds shift for prior correction
+    Compute log-odds shift for correcting class prior mismatch
 
-    When calibrating scores on one dataset (e.g., validation) and evaluating
-    on another with different class priors, we need to adjust the scores.
-
-    The shift is: log(P_eval / P_cal * (1 - P_cal) / (1 - P_eval))
-
-    This is added to the log-odds: logit_corrected = logit + shift
+    When calibration set and evaluation set have different class distributions,
+    scores need adjustment: logit_corrected = logit + shift
 
     Args:
         prior_cal: Prior probability of positive class in calibration set
@@ -718,8 +709,8 @@ def apply_platt_calibration(
     test_logits: np.ndarray
 ) -> Tuple[np.ndarray, 'LogisticRegression']:
     """
-    Apply Platt calibration on calibration set and transform test set
-    Platt calibration: trains a logistic regression on calibration scores
+    Apply Platt calibration to convert model scores to calibrated probabilities
+    Fits logistic regression on calibration set, then transforms test scores
 
     Args:
         cal_logits: Calibration logits [N_cal, 2]
@@ -727,7 +718,7 @@ def apply_platt_calibration(
         test_logits: Test logits [N_test, 2]
 
     Returns:
-        (calibrated_test_scores, calibrator): Calibrated scores and the calibrator model
+        (calibrated_test_scores, calibrator): Calibrated probabilities and fitted calibrator
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -754,8 +745,8 @@ def apply_prior_correction(
     calibrated_scores: np.ndarray
 ) -> np.ndarray:
     """
-    Apply prior correction based on label distribution difference
-    Uses log-odds shift: corrected_logit = logit + log(P_test/P_cal * (1-P_cal)/(1-P_test))
+    Adjust calibrated scores for different class prior distributions
+    Applies log-odds shift to correct for prior mismatch
 
     Args:
         cal_labels: Calibration labels [N_cal]
@@ -830,22 +821,22 @@ def evaluate_with_calibration(
         enable_prior_correction: bool = True
 ) -> Dict[str, Dict[str, any]]:
     """
-    Complete evaluation pipeline with calibration and prior correction
-    Evaluates on train/dev/eval sets, applies calibration using dev set as reference
+    Complete evaluation with Platt calibration and prior correction
+    Uses dev set as calibration reference, applies to dev and eval sets
 
     Args:
         model: Model to evaluate
         train_loader: Training data loader
-        dev_loader: Development/validation data loader (used as calibration reference)
-        eval_loader: Evaluation/test data loader
+        dev_loader: Development data loader (calibration reference)
+        eval_loader: Evaluation data loader
         device: Device to evaluate on
         apply_calibration: Whether to apply Platt calibration
-        enable_prior_correction: Whether to apply prior correction (only if calibration enabled)
+        enable_prior_correction: Whether to correct for prior mismatch
 
     Returns:
-        Dictionary with results for each dataset:
+        Dict with results for train/dev/eval:
         {
-            'train': {'logits': ..., 'labels': ..., 'initial_metrics': ..., 'calibrated_metrics': ...},
+            'train': {'logits': ..., 'labels': ..., 'initial_metrics': ..., ...},
             'dev': {'logits': ..., 'labels': ..., 'initial_metrics': ..., 'calibrated_metrics': ...},
             'eval': {'logits': ..., 'labels': ..., 'initial_metrics': ..., 'calibrated_metrics': ...}
         }
@@ -957,64 +948,6 @@ def count_parameters(model: nn.Module) -> int:
         Number of trainable parameters
     """
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-
-def save_checkpoint(
-    model: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    epoch: int,
-    metrics: Dict[str, float],
-    save_path: str
-) -> None:
-    """
-    Save model checkpoint
-
-    Args:
-        model: PyTorch model
-        optimizer: Optimizer
-        epoch: Current epoch
-        metrics: Dictionary of metrics
-        save_path: Path to save checkpoint
-    """
-    checkpoint = {
-        'epoch': epoch,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'metrics': metrics
-    }
-    torch.save(checkpoint, save_path)
-    print(f"Checkpoint saved to {save_path}")
-
-
-def load_checkpoint(
-        model: nn.Module,
-        optimizer: torch.optim.Optimizer,
-        load_path: str,
-        device: torch.device
-) -> Tuple[nn.Module, torch.optim.Optimizer, int, Dict[str, float]]:
-    """
-    Load model checkpoint
-
-    Args:
-        model: PyTorch model
-        optimizer: Optimizer
-        load_path: Path to checkpoint
-        device: Device to load to
-
-    Returns:
-        (model, optimizer, epoch, metrics)
-    """
-    checkpoint = torch.load(load_path, map_location=device, weights_only=False)
-    model.load_state_dict(checkpoint['model_state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    epoch = checkpoint['epoch']
-    metrics = checkpoint['metrics']
-
-    print(f" Checkpoint loaded from {load_path}")
-    print(f"  - Epoch: {epoch}")
-    print(f"  - Metrics: {metrics}")
-
-    return model, optimizer, epoch, metrics
 
 
 def save_model(

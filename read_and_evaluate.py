@@ -45,7 +45,7 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./final_nc/focal_0.3_1.2/best_model.pt"
+    model_path: str = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_attention/best_model_eer_0.1251.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
@@ -61,7 +61,13 @@ class EvaluationConfig:
             protocol_dir="N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv",
             use_tta=True,
         ),
-
+        DatasetConfig(
+            name="Eval",
+            data_dir="N:/Dataset/ASV5/flac_E/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv",
+            apply_calibration=True,
+            use_tta=True,
+        )
     ])
 
     # Audio processing parameters
@@ -145,11 +151,11 @@ def create_dataloader(
     data_args.train_shuffle = False  # No shuffle for evaluation
     data_args.seed = config.seed
     data_args.use_rawboost = False  # No augmentation for evaluation
-    data_args.use_tta = dataset_config.use_tta  # Set TTA based on dataset config
-    data_args.tta_num_crops = EvaluationConfig.tta_num_crops  # Number of crops per sample for TTA
+    data_args.use_tta = dataset_config.use_tta
+    data_args.tta_num_crops = config.tta_num_crops
 
-    # Load data (we use dev_loader as it's typically used for validation/eval)
-    _, loader, _, _ = make_loaders(data_args)
+    # Load data (use dev_loader from make_loaders for consistency)
+    _, loader, _ = make_loaders(data_args)
 
     return loader
 
@@ -363,15 +369,14 @@ def main():
                 )
 
                 # Apply prior correction (if enabled)
-                # WARNING: Prior correction should only use dev labels for estimating prior.
                 if config.apply_prior_correction:
                     if dataset_config.name == "Eval":
-                        print(f"\n[Prior Correction] WARNING: Using dev prior for Eval (no label peeking)")
-                        # Use dev prior for eval (proper evaluation)
+                        # For Eval dataset: don't use actual labels for prior correction to avoid label leakage
+                        print(f"\n[Prior Correction] Using Dev prior for Eval (avoiding label leakage)")
                         dev_prior = np.mean(cal_labels == 1)
                         print(f"  - Dev set prior P(bonafide): {dev_prior:.4f}")
-                        print(f"  - Applying same prior assumption to Eval")
-                        # No correction needed if using same prior
+                        print(f"  - Assuming same prior for Eval")
+                        # No correction needed when assuming same prior
                         final_scores = calibrated_scores
                     else:
                         print(f"\n[Prior Correction] Applying prior correction to {dataset_config.name}")

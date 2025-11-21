@@ -127,7 +127,7 @@ class SpeechTransformerClassifier(nn.Module):
         print(f"  - dropout: {args.dropout}")
         print(f"  - pooling_method: {args.pooling_method}")
 
-        # Create mel filterbank
+        # Create mel filterbank and register as buffer
         mel_basis = self._create_mel_filterbank(
             n_fft=args.n_fft,
             n_mels=args.n_mels,
@@ -137,7 +137,7 @@ class SpeechTransformerClassifier(nn.Module):
         )
         self.register_buffer('mel_basis', mel_basis)
 
-        # Register Hann window as buffer to avoid creating it every forward pass
+        # Register Hann window as buffer
         self.register_buffer('hann', torch.hann_window(args.n_fft))
 
         # Input normalization layer
@@ -366,7 +366,7 @@ class SpeechTransformerClassifier(nn.Module):
             pooled = (encoded * attention_weights).sum(dim=1)  # [B, d_model]
 
         elif self.pooling_method == "top-k":
-            # Top-k pooling: select top-k frames by L2 norm, amplifies short artifacts
+            # Top-k pooling: select top-k frames by L2 norm
             frame_norms = torch.norm(encoded, p=2, dim=-1)  # [B, T']
             frame_norms = frame_norms.masked_fill(src_key_padding_mask, float('-inf'))
 
