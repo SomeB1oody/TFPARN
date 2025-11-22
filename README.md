@@ -1,6 +1,6 @@
-# ASVspoof5 Deep Learning System
+# TFPARN (Transformer-based Focal-Pairwise Attentive Ranking Network) for Anti-Spoofing
 
-A Transformer-based deep learning system for detecting AI-generated synthetic speech in the ASVspoof5 challenge. This model distinguishes between genuine human speech (bonafide) and AI-generated synthetic speech (spoof) using a complete end-to-end architecture.
+A Transformer solution for detecting AI-generated synthetic speech in the ASVspoof5 challenge. This model distinguishes between genuine human speech (bonafide) and AI-generated synthetic speech (spoof) using a complete end-to-end architecture.
 
 ---
 
@@ -42,14 +42,25 @@ Download ASVspoof datasets from:
 Edit the data paths in `main_train.py`:
 
 ```python
-# In main_train.py, modify the DefaultArgs section:
-args = DefaultArgs()
-args.train_data_dir = "path/to/train/flac/"
-args.train_protocol_dir = "path/to/train/protocol.tsv"
-args.dev_data_dir = "path/to/dev/flac/"
-args.dev_protocol_dir = "path/to/dev/protocol.tsv"
-args.eval_data_dir = "path/to/eval/flac/"
-args.eval_protocol_dir = "path/to/eval/protocol.tsv"
+from dataclasses import dataclass
+
+@dataclass
+class ModelArgs:
+    """
+    Complete configuration for training
+    Includes: data processing, model architecture, and training hyperparameters
+    """
+    # Data paths
+    train_data_dir: str = "N:/Dataset/ASV5/flac_T/"
+    dev_data_dir: str = "N:/Dataset/ASV5/flac_D/"
+    eval_data_dir: str = "N:/Dataset/ASV5/flac_E/"
+
+    # Protocol file paths
+    train_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.train.tsv"
+    dev_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv"
+    eval_protocol_dir: str = "N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv"
+
+    # ...
 ```
 
 Run training:
@@ -63,8 +74,12 @@ python main_train.py
 Key hyperparameters can be modified in `main_train.py`:
 
 ```python
+from dataclasses import dataclass
+
 @dataclass
 class ModelArgs:
+    # ...
+    
     # Training hyperparameters
     max_epochs: int = 80                    # Maximum training epochs
     batch_size: int = 96                    # Batch size (adjust based on GPU memory)
@@ -98,7 +113,7 @@ class ModelArgs:
     early_stopping_patience: int = 15       # Patience for early stopping
 
     # Model saving
-    save_dir: str = "./final_nc/"           # Directory to save models
+    save_dir: str = "./checkpoints/"           # Directory to save models
 ```
 
 ### Adjusting Batch Size for Different GPUs
@@ -112,7 +127,15 @@ class ModelArgs:
 To change batch size, modify in `main_train.py`:
 
 ```python
-args.batch_size = 64  # For 8GB GPU
+from dataclasses import dataclass
+
+@dataclass
+class ModelArgs:
+    # ...
+    
+    batch_size = 64  # For 8GB GPU
+
+    #...
 ```
 
 ---
@@ -124,26 +147,40 @@ args.batch_size = 64  # For 8GB GPU
 Edit the model path and data paths in `read_and_evaluate.py`:
 
 ```python
-# Model configuration
-model_path = "./final_nc/best_model_eer_0.0567/best_model.pt"
-config_path = "./final_nc/best_model_eer_0.0567/best_model.json"
+from dataclasses import dataclass, field
+from typing import List
+from read_and_evaluate import DatasetConfig
 
-# Dataset paths
-datasets = [
-    {
-        "name": "Dev",
-        "data_dir": "path/to/dev/flac/",
-        "protocol_dir": "path/to/dev/protocol.tsv",
-        "use_tta": True,
-    },
-    {
-        "name": "Eval",
-        "data_dir": "path/to/eval/flac/",
-        "protocol_dir": "path/to/eval/protocol.tsv",
-        "apply_calibration": True,
-        "use_tta": True,
-    }
-]
+@dataclass
+class EvaluationConfig:
+    """
+    Evaluation configuration parameters
+    """
+    # Model path
+    model_path: str = "./checkpoints/best_model.pt"
+
+    # Dataset configurations
+    datasets: List[DatasetConfig] = field(default_factory=lambda: [
+        DatasetConfig(
+            name="Train",
+            data_dir="N:/Dataset/ASV5/flac_T/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.train.tsv",
+            use_tta=False,
+        ),
+        DatasetConfig(
+            name="Dev",
+            data_dir="N:/Dataset/ASV5/flac_D/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv",
+            use_tta=True,
+        ),
+        DatasetConfig(
+            name="Eval",
+            data_dir="N:/Dataset/ASV5/flac_E/",
+            protocol_dir="N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv",
+            apply_calibration=True,
+            use_tta=True,
+        )
+    ])
 ```
 
 Run evaluation:
@@ -169,7 +206,7 @@ The system computes the following metrics:
 ### Architecture Overview
 
 ```
-Raw Waveform → Log-Mel Spectrogram → Transformer Encoder → Pooling → Classification
+Raw Waveform -> Log-Mel Spectrogram -> Transformer Encoder -> Pooling -> Classification
 ```
 
 **Key Features:**
@@ -183,24 +220,33 @@ Raw Waveform → Log-Mel Spectrogram → Transformer Encoder → Pooling → Cla
 To change the model architecture, edit `SpeechClassifierArgs` in `main_train.py`:
 
 ```python
-from model import SpeechClassifierArgs
+from dataclasses import dataclass
 
-# Example: Deeper model
-args = SpeechClassifierArgs(
-    d_model=256,           # Increase for wider model
-    num_layers=8,          # Increase for deeper model
-    nhead=8,
-    dim_feedforward=1024,  # Increase for wider FFN
-    dropout=0.3,
-    pooling_method="mean"  # Options: "mean", "attention", "top-k"
-)
+@dataclass
+class ModelArgs:
+    # ...
+    
+    # Model Parameters (from model.py)
+    n_mels: int = 160
+    n_fft: int = 1024
+    hop_length: int = 160
+    d_model: int = 256
+    nhead: int = 8
+    num_layers: int = 6
+    dim_feedforward: int = 1024
+    model_dropout: float = 0.3
+    activation: str = "relu"
+    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
+    top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
+
+    # ...
 ```
 
 ### Pooling Methods
 
 Three pooling strategies are available:
 
-1. **Mean Pooling (Default):** Average all frame embeddings
+1. **Mean Pooling:** Average all frame embeddings
    - Fast and memory-efficient
    - Good for most cases
 
@@ -215,8 +261,16 @@ Three pooling strategies are available:
 To change pooling method:
 
 ```python
-args.pooling_method = "attention"  # or "mean", "top-k"
-args.top_k_ratio = 0.3  # Only for top-k pooling
+from dataclasses import dataclass
+
+@dataclass
+class ModelArgs:
+    # ...
+    
+    pooling_method = "attention"  # or "mean", "top-k"
+    top_k_ratio = 0.3  # Only for top-k pooling
+
+    # ...
 ```
 
 ### Data Augmentation
@@ -229,8 +283,16 @@ args.top_k_ratio = 0.3  # Only for top-k pooling
 Configure in `main_train.py`:
 
 ```python
-args.use_rawboost = True        # Enable/disable RawBoost
-args.rawboost_prob = 0.5        # Probability of applying (0.0-1.0)
+from dataclasses import dataclass
+
+@dataclass
+class ModelArgs:
+    # ...
+    
+    use_rawboost = True        # Enable/disable RawBoost
+    rawboost_prob = 0.5        # Probability of applying (0.0-1.0)
+
+    # ...
 ```
 
 **Test-Time Augmentation (TTA):**
@@ -241,49 +303,79 @@ args.rawboost_prob = 0.5        # Probability of applying (0.0-1.0)
 Configure in `main_train.py`:
 
 ```python
-args.use_tta = True             # Enable/disable TTA
-args.tta_num_crops = 5          # Number of crops (3-7 recommended)
+from dataclasses import dataclass
+
+@dataclass
+class ModelArgs:
+    # ...
+    
+    use_tta = True             # Enable/disable TTA
+    tta_num_crops = 5          # Number of crops (3-7 recommended)
+
+    # ...
 ```
 
 ---
 
-## Hyperparameter Tuning
+## Multiple Experiments
 
-To run multiple experiments with different hyperparameters:
+To run multiple experiments with different parameters at once:
 
 ```bash
 python run_multiple_experiments.py
 ```
 
-Edit the parameter grid in `run_multiple_experiments.py`:
+Edit the parameter in `create_experiment_list` function of `run_multiple_experiments.py`:
 
 ```python
-param_grid = {
-    'focal_alpha': [0.05, 0.1, 0.2],
-    'focal_gamma': [1.0, 2.0, 3.0],
-    'pooling_method': ['mean', 'attention'],
-    'learning_rate': [1e-4, 5e-5],
-}
+from typing import List
+from main_train import ModelArgs
+
+def create_experiment_list() -> List[ModelArgs]:
+    """
+    Define multiple experiments here
+    Each experiment is a complete ModelArgs configuration
+
+    Returns:
+        List of ModelArgs configurations to run
+    """
+    experiments = []
+
+    # Experiment 1
+    exp1 = ModelArgs()
+    exp1.learning_rate = 1e-4
+    exp1.weight_decay = 1e-2
+    exp1.pooling_method = "mean"
+    exp1.loss_type = "focal"
+    exp1.enable_pairwise = False
+    exp1.focal_alpha = 0.1
+    exp1.focal_gamma = 2.0
+    exp1.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_no_pairwise/"
+
+    # Experiment 2
+    exp2 = ModelArgs()
+    exp2.learning_rate = 1e-4
+    exp2.weight_decay = 1e-2
+    exp2.pooling_method = "mean"
+    exp2.loss_type = "focal"
+    exp2.enable_pairwise = True
+    exp2.focal_alpha = 0.1
+    exp2.focal_gamma = 2.0
+    exp2.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0/"
+
+    # More can be added here...
+    
+    experiments.append(exp1)
+    experiments.append(exp2)
+    # More can be added here...
+
+    return experiments
 ```
 
-This will automatically run all combinations and save results to separate directories.
-
----
-
-## References
-
-- ASVspoof 5 Challenge: https://zenodo.org/records/14498691
-- RawBoost Augmentation: https://arxiv.org/abs/2111.04433
-- Focal Loss: https://arxiv.org/abs/1708.02002
+This will automatically run all experiments in order and save the results in the specified directory.
 
 ---
 
 ## License
 
 [MIT LICENSE](LICENSE)
-
----
-
-## Contact
-
-For questions or issues, please open an issue on GitHub or contact stanyin64@gmail.com

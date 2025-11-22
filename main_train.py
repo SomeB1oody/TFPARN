@@ -90,7 +90,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_top-k/"
+    save_dir: str = "./focal_0.1_2.0_top-k/"
 
     # Other
     seed: int = 42
