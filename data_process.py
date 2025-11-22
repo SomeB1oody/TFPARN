@@ -18,10 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from scipy import signal
 
 
-# ============================================================================
 # Configuration
-# ============================================================================
-
 @dataclass
 class DefaultArgs:
     """
@@ -62,7 +59,6 @@ class DefaultArgs:
     use_tta: bool = True  # Enable Test-Time Augmentation for dev/eval
     tta_num_crops: int = 5  # Number of crops per sample for TTA
 
-
 def get_default_args() -> DefaultArgs:
     """
     Return default arguments instance
@@ -70,10 +66,7 @@ def get_default_args() -> DefaultArgs:
     return DefaultArgs()
 
 
-# ============================================================================
 # RawBoost Data Augmentation
-# ============================================================================
-
 class RawBoost:
     """
     RawBoost data augmentation for anti-spoofing
@@ -181,10 +174,7 @@ class RawBoost:
         return x_noisy.astype(np.float32)
 
 
-# ============================================================================
 # Protocol Parsing
-# ============================================================================
-
 def read_protocol(protocol_path: str) -> List[Dict[str, Any]]:
     """
     Read and parse ASVspoof5 protocol file
@@ -274,10 +264,7 @@ def read_protocol(protocol_path: str) -> List[Dict[str, Any]]:
     return items
 
 
-# ============================================================================
 # Dataset Class
-# ============================================================================
-
 class ASV5Dataset(Dataset):
     """
     ASVspoof5 Dataset
@@ -524,10 +511,7 @@ class ASV5Dataset(Dataset):
         return torch.stack(crops, dim=0)
 
 
-# ============================================================================
 # TTA Dataset Wrapper
-# ============================================================================
-
 class TTADataset(torch.utils.data.Dataset):
     """
     Test-Time Augmentation Dataset Wrapper
@@ -648,10 +632,7 @@ def collate_fn_tta(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-# ============================================================================
 # Collate Function
-# ============================================================================
-
 def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     Collate batch and stack tensors
@@ -685,10 +666,7 @@ def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
-# ============================================================================
 # Class Weights Calculation
-# ============================================================================
-
 def get_class_weights(items: List[Dict[str, Any]]) -> torch.Tensor:
     """
     Calculate class weights for addressing class imbalance
@@ -722,16 +700,13 @@ def get_class_weights(items: List[Dict[str, Any]]) -> torch.Tensor:
     return weights
 
 
-# ============================================================================
 # Main Function: Build DataLoaders
-# ============================================================================
-
-def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader]:
+def make_loaders(arguments) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Build train, dev, eval DataLoaders
 
     Args:
-        args: Argument object containing all fields in DefaultArgs
+        arguments: Argument object containing all fields in DefaultArgs
 
     Returns:
         (train_loader, dev_loader, eval_loader)
@@ -746,63 +721,63 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader]:
 
     # Parse protocols
     print(f"\n[Step 1/3] Parsing protocol files")
-    print(f"  - Train protocol: {args.train_protocol_dir}")
-    train_items = read_protocol(args.train_protocol_dir)
+    print(f"  - Train protocol: {arguments.train_protocol_dir}")
+    train_items = read_protocol(arguments.train_protocol_dir)
 
-    print(f"  - Dev protocol: {args.dev_protocol_dir}")
-    dev_items = read_protocol(args.dev_protocol_dir)
+    print(f"  - Dev protocol: {arguments.dev_protocol_dir}")
+    dev_items = read_protocol(arguments.dev_protocol_dir)
 
-    print(f"  - Eval protocol: {args.eval_protocol_dir}")
-    eval_items = read_protocol(args.eval_protocol_dir)
+    print(f"  - Eval protocol: {arguments.eval_protocol_dir}")
+    eval_items = read_protocol(arguments.eval_protocol_dir)
 
     # Build datasets
     print(f"\n[Step 2/3] Building datasets")
 
     train_dataset = ASV5Dataset(
-        data_dir=args.train_data_dir,
+        data_dir=arguments.train_data_dir,
         items=train_items,
-        sample_rate=args.sample_rate,
-        duration_sec=args.duration_sec,
-        mono=args.mono,
-        normalize=args.normalize,
-        seed=args.seed,
+        sample_rate=arguments.sample_rate,
+        duration_sec=arguments.duration_sec,
+        mono=arguments.mono,
+        normalize=arguments.normalize,
+        seed=arguments.seed,
         mode="train",
-        use_rawboost=args.use_rawboost,
-        rawboost_prob=args.rawboost_prob
+        use_rawboost=arguments.use_rawboost,
+        rawboost_prob=arguments.rawboost_prob
     )
 
     dev_base_dataset = ASV5Dataset(
-        data_dir=args.dev_data_dir,
+        data_dir=arguments.dev_data_dir,
         items=dev_items,
-        sample_rate=args.sample_rate,
-        duration_sec=args.duration_sec,
-        mono=args.mono,
-        normalize=args.normalize,
-        seed=args.seed,
+        sample_rate=arguments.sample_rate,
+        duration_sec=arguments.duration_sec,
+        mono=arguments.mono,
+        normalize=arguments.normalize,
+        seed=arguments.seed,
         mode="dev",
         use_rawboost=False,  # No augmentation for dev
         rawboost_prob=0.0
     )
 
     eval_base_dataset = ASV5Dataset(
-        data_dir=args.eval_data_dir,
+        data_dir=arguments.eval_data_dir,
         items=eval_items,
-        sample_rate=args.sample_rate,
-        duration_sec=args.duration_sec,
-        mono=args.mono,
-        normalize=args.normalize,
-        seed=args.seed,
+        sample_rate=arguments.sample_rate,
+        duration_sec=arguments.duration_sec,
+        mono=arguments.mono,
+        normalize=arguments.normalize,
+        seed=arguments.seed,
         mode="eval",
         use_rawboost=False,  # No augmentation for eval
         rawboost_prob=0.0
     )
 
     # Wrap dev/eval with TTA if enabled
-    if args.use_tta:
+    if arguments.use_tta:
         print(f"\n[TTA] Test-Time Augmentation ENABLED")
-        print(f"  - Number of crops per sample: {args.tta_num_crops}")
-        dev_dataset = TTADataset(dev_base_dataset, num_crops=args.tta_num_crops)
-        eval_dataset = TTADataset(eval_base_dataset, num_crops=args.tta_num_crops)
+        print(f"  - Number of crops per sample: {arguments.tta_num_crops}")
+        dev_dataset = TTADataset(dev_base_dataset, num_crops=arguments.tta_num_crops)
+        eval_dataset = TTADataset(eval_base_dataset, num_crops=arguments.tta_num_crops)
         dev_collate_fn = collate_fn_tta
         eval_collate_fn = collate_fn_tta
     else:
@@ -815,45 +790,45 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader]:
     # Build DataLoaders
     print(f"\n[Step 3/3] Building DataLoaders")
     print(f"  Configuration:")
-    print(f"    - Batch size: {args.batch_size}")
-    print(f"    - Num workers: {args.num_workers}")
-    print(f"    - Prefetch factor: {args.prefetch_factor}")
-    print(f"    - Pin memory: {args.pin_memory}")
-    print(f"    - Persistent workers: {args.persistent_workers}")
-    print(f"    - Train shuffle: {args.train_shuffle}")
+    print(f"    - Batch size: {arguments.batch_size}")
+    print(f"    - Num workers: {arguments.num_workers}")
+    print(f"    - Prefetch factor: {arguments.prefetch_factor}")
+    print(f"    - Pin memory: {arguments.pin_memory}")
+    print(f"    - Persistent workers: {arguments.persistent_workers}")
+    print(f"    - Train shuffle: {arguments.train_shuffle}")
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=args.batch_size,
-        shuffle=args.train_shuffle,
-        num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
-        pin_memory=args.pin_memory,
-        persistent_workers=args.persistent_workers if args.num_workers > 0 else False,
+        batch_size=arguments.batch_size,
+        shuffle=arguments.train_shuffle,
+        num_workers=arguments.num_workers,
+        prefetch_factor=arguments.prefetch_factor if arguments.num_workers > 0 else None,
+        pin_memory=arguments.pin_memory,
+        persistent_workers=arguments.persistent_workers if arguments.num_workers > 0 else False,
         collate_fn=collate_fn
     )
     print(f"  ✓ Train DataLoader ready: {len(train_loader)} batches")
 
     dev_loader = DataLoader(
         dev_dataset,
-        batch_size=args.batch_size,
+        batch_size=arguments.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
-        pin_memory=args.pin_memory,
-        persistent_workers=args.persistent_workers if args.num_workers > 0 else False,
+        num_workers=arguments.num_workers,
+        prefetch_factor=arguments.prefetch_factor if arguments.num_workers > 0 else None,
+        pin_memory=arguments.pin_memory,
+        persistent_workers=arguments.persistent_workers if arguments.num_workers > 0 else False,
         collate_fn=dev_collate_fn
     )
     print(f"  ✓ Dev DataLoader ready: {len(dev_loader)} batches")
 
     eval_loader = DataLoader(
         eval_dataset,
-        batch_size=args.batch_size,
+        batch_size=arguments.batch_size,
         shuffle=False,
-        num_workers=args.num_workers,
-        prefetch_factor=args.prefetch_factor if args.num_workers > 0 else None,
-        pin_memory=args.pin_memory,
-        persistent_workers=args.persistent_workers if args.num_workers > 0 else False,
+        num_workers=arguments.num_workers,
+        prefetch_factor=arguments.prefetch_factor if arguments.num_workers > 0 else None,
+        pin_memory=arguments.pin_memory,
+        persistent_workers=arguments.persistent_workers if arguments.num_workers > 0 else False,
         collate_fn=eval_collate_fn
     )
     print(f"  ✓ Eval DataLoader ready: {len(eval_loader)} batches")
@@ -865,24 +840,21 @@ def make_loaders(args) -> Tuple[DataLoader, DataLoader, DataLoader]:
     print(f"  - Train: {len(train_dataset)} samples, {len(train_loader)} batches")
     print(f"  - Dev: {len(dev_dataset)} samples, {len(dev_loader)} batches")
     print(f"  - Eval: {len(eval_dataset)} samples, {len(eval_loader)} batches")
-    if args.use_tta:
-        print(f"  - TTA: {args.tta_num_crops} crops per sample")
+    if arguments.use_tta:
+        print(f"  - TTA: {arguments.tta_num_crops} crops per sample")
     print("="*80 + "\n")
 
     return train_loader, dev_loader, eval_loader
 
 
-# ============================================================================
 # Test/Demo Function
-# ============================================================================
-
 if __name__ == "__main__":
     """
     Quick test of the data loading pipeline
     """
     print("Testing ASVspoof5 data loading pipeline...")
 
-    # Get default args
+    # Get default arguments
     args = get_default_args()
 
     # Override for quick test (optional)

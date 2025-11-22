@@ -11,10 +11,7 @@ import torch
 import torch.nn as nn
 
 
-# ============================================================================
 # Model Configuration
-# ============================================================================
-
 @dataclass
 class SpeechClassifierArgs:
     """
@@ -39,10 +36,7 @@ class SpeechClassifierArgs:
     top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
 
 
-# ============================================================================
 # Model Components
-# ============================================================================
-
 class PositionalEncoding(nn.Module):
     """
     Sinusoidal positional encoding for Transformer
@@ -80,10 +74,7 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-# ============================================================================
 # Main Model
-# ============================================================================
-
 class SpeechTransformerClassifier(nn.Module):
     """
     Speech Transformer Binary Classifier
@@ -397,10 +388,7 @@ class SpeechTransformerClassifier(nn.Module):
         return logits
 
 
-# ============================================================================
-# Model Factory
-# ============================================================================
-
+# Call model
 def create_model(args: SpeechClassifierArgs = None) -> SpeechTransformerClassifier:
     """
     Create model instance

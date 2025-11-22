@@ -22,10 +22,7 @@ from utils import (
 )
 
 
-# ============================================================================
 # Training Configuration
-# ============================================================================
-
 @dataclass
 class ModelArgs:
     """
@@ -53,7 +50,7 @@ class ModelArgs:
     persistent_workers: bool = True
     train_shuffle: bool = True
 
-    # Model Parameters (from model.py)
+    # Model Parameters
     n_mels: int = 160
     n_fft: int = 1024
     hop_length: int = 160
@@ -96,10 +93,7 @@ class ModelArgs:
     seed: int = 42
 
 
-# ============================================================================
 # Training Functions
-# ============================================================================
-
 def train_one_epoch(
     model: nn.Module,
     train_loader: torch.utils.data.DataLoader,
@@ -232,10 +226,7 @@ def validate(
     return avg_loss, metrics
 
 
-# ============================================================================
 # Main Training Loop
-# ============================================================================
-
 def main():
     """
     Main training function
@@ -254,14 +245,12 @@ def main():
     device = get_device()
     clear_cuda_cache()
 
-    # ========================================================================
     # Step 1: Load Data
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 1: LOADING DATA")
     print("="*80)
 
-    # Create data processing args
+    # Create data processing arguments
     data_args = DataProcessArgs()
     data_args.train_data_dir = args.train_data_dir
     data_args.dev_data_dir = args.dev_data_dir
@@ -286,14 +275,12 @@ def main():
     # Load data
     train_loader, dev_loader, eval_loader = make_loaders(data_args)
 
-    # ========================================================================
     # Step 2: Create Model
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 2: CREATING MODEL")
     print("="*80)
 
-    # Create model args
+    # Create model arguments
     model_args = SpeechClassifierArgs()
     model_args.n_mels = args.n_mels
     model_args.n_fft = args.n_fft
@@ -315,9 +302,7 @@ def main():
     num_params = count_parameters(model)
     print(f"[✓] Model created with {num_params:,} trainable parameters")
 
-    # ========================================================================
     # Step 3: Create Loss Function
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 3: CREATING LOSS FUNCTION")
     print("="*80)
@@ -343,9 +328,7 @@ def main():
 
     criterion = criterion.to(device)
 
-    # ========================================================================
     # Step 4: Create Optimizer and Scheduler
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 4: CREATING OPTIMIZER AND SCHEDULER")
     print("="*80)
@@ -390,9 +373,7 @@ def main():
 
     print(f"[✓] Optimizer and scheduler created")
 
-    # ========================================================================
     # Step 5: Training Loop
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 5: TRAINING")
     print("="*80)
@@ -492,9 +473,7 @@ def main():
     print(f"  - Best epoch: {best_epoch}")
     print(f"  - Best {args.early_stopping_metric}: {best_metric:.4f}")
 
-    # ========================================================================
     # Step 6: Load Best Model and Evaluate on Test Set
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 6: LOAD BEST MODEL AND EVALUATE ON TEST SET")
     print("="*80)
@@ -572,9 +551,7 @@ def main():
             target_names=['spoof (AI)', 'bonafide (human)']
         )
 
-    # ========================================================================
     # Step 7: Save Model (Auto-save)
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 7: SAVE MODEL")
     print("="*80)

@@ -18,10 +18,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 
-# ============================================================================
 # Random Seed
-# ============================================================================
-
 def set_seed(seed: int = 42) -> None:
     """
     Fix random seed for reproducibility
@@ -42,10 +39,7 @@ def set_seed(seed: int = 42) -> None:
     print(f"[Seed] Random seed fixed to {seed}")
 
 
-# ============================================================================
 # Device Management
-# ============================================================================
-
 def get_device() -> torch.device:
     """
     Automatically select available device: cuda > cpu
@@ -72,10 +66,7 @@ def clear_cuda_cache() -> None:
         torch.cuda.empty_cache()
 
 
-# ============================================================================
 # Loss Functions
-# ============================================================================
-
 class FocalLoss(nn.Module):
     """
     Focal Loss for handling class imbalance
@@ -266,10 +257,7 @@ def create_loss_function(
     return main_criterion
 
 
-# ============================================================================
 # Evaluation Metrics
-# ============================================================================
-
 def compute_eer(scores: np.ndarray, labels: np.ndarray) -> Tuple[float, float]:
     """
     Compute Equal Error Rate (EER) and threshold
@@ -585,10 +573,7 @@ def print_classification_report_wrapper(
     print("="*80)
 
 
-# ============================================================================
 # Model Utilities
-# ============================================================================
-
 def load_model_weights(
     model: nn.Module,
     checkpoint_path: str,
@@ -1067,10 +1052,7 @@ def save_model(
     print(f"[✓] Model weights saved to {model_path}")
 
 
-# ============================================================================
 # Early Stopping
-# ============================================================================
-
 class EarlyStopping:
     """
     Early stopping handler

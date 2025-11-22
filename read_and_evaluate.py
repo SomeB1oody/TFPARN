@@ -129,7 +129,7 @@ def create_dataloader(
     print(f"  - Apply calibration: {dataset_config.apply_calibration}")
     print(f"  - Use TTA: {dataset_config.use_tta}")
 
-    # Create data processing args
+    # Create data processing arguments
     data_args = DataProcessArgs()
     # Set all three dirs to the same path (make_loaders expects all three)
     data_args.train_data_dir = dataset_config.data_dir
@@ -274,7 +274,7 @@ def main():
     print("STEP 2: CREATING AND LOADING MODEL")
     print("="*80)
 
-    # Create model args
+    # Create model arguments
     model_args = SpeechClassifierArgs()
     model_args.n_mels = config.n_mels
     model_args.n_fft = config.n_fft

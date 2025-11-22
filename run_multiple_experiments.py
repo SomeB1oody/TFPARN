@@ -22,10 +22,7 @@ from utils import (
 from main_train import ModelArgs, train_one_epoch, validate
 
 
-# ============================================================================
 # Experiment Configuration
-# ============================================================================
-
 def create_experiment_list() -> List[ModelArgs]:
     """
     Define multiple experiments here
@@ -104,10 +101,7 @@ def create_experiment_list() -> List[ModelArgs]:
     return experiments
 
 
-# ============================================================================
 # Single Experiment Runner
-# ============================================================================
-
 def run_single_experiment(
     args: ModelArgs,
     experiment_idx: int,
@@ -135,9 +129,7 @@ def run_single_experiment(
     device = get_device()
     clear_cuda_cache()
 
-    # ========================================================================
     # Step 1: Load Data
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 1: LOADING DATA")
     print("="*80)
@@ -165,9 +157,7 @@ def run_single_experiment(
 
     train_loader, dev_loader, eval_loader = make_loaders(data_args)
 
-    # ========================================================================
     # Step 2: Create Model
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 2: CREATING MODEL")
     print("="*80)
@@ -192,9 +182,7 @@ def run_single_experiment(
     num_params = count_parameters(model)
     print(f"[✓] Model created with {num_params:,} trainable parameters")
 
-    # ========================================================================
     # Step 3: Create Loss Function
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 3: CREATING LOSS FUNCTION")
     print("="*80)
@@ -219,9 +207,7 @@ def run_single_experiment(
 
     criterion = criterion.to(device)
 
-    # ========================================================================
     # Step 4: Create Optimizer and Scheduler
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 4: CREATING OPTIMIZER AND SCHEDULER")
     print("="*80)
@@ -258,9 +244,7 @@ def run_single_experiment(
 
     print(f"[✓] Optimizer and scheduler created")
 
-    # ========================================================================
     # Step 5: Training Loop
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 5: TRAINING")
     print("="*80)
@@ -340,9 +324,7 @@ def run_single_experiment(
     print("TRAINING COMPLETED")
     print("="*80)
 
-    # ========================================================================
     # Step 6: Evaluation
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 6: EVALUATION")
     print("="*80)
@@ -377,9 +359,7 @@ def run_single_experiment(
     print_metrics(final_val_metrics, prefix="  [VAL] ")
     print_metrics(eval_metrics, prefix="  [TEST] ")
 
-    # ========================================================================
     # Step 7: Save Model
-    # ========================================================================
     print("\n" + "="*80)
     print("STEP 7: SAVE MODEL")
     print("="*80)
@@ -425,10 +405,7 @@ def run_single_experiment(
     }
 
 
-# ============================================================================
 # Main Runner
-# ============================================================================
-
 def main():
     """
     Main function to run multiple experiments
