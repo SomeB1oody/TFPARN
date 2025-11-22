@@ -300,56 +300,90 @@ def compute_min_dcf(
     p_target: float = 0.05
 ) -> Tuple[float, float]:
     """
-    Compute minimum Detection Cost Function (minDCF)
+    Compute minimum Detection Cost Function (minDCF) for ASVspoof5 Track 1
+
+    Following ASVspoof5 specification:
+    - DCF(τ) = C_miss * (1 - π_spf) * P_miss(τ) + C_fa * π_spf * P_fa(τ)
+    - Normalized: DCF'(τ) = β * [P_miss(τ) + P_fa(τ)]
+    - where β = C_miss * (1 - π_spf) / C_fa / π_spf ≈ 1.90
+    - minDCF = min_τ DCF'(τ)
 
     Args:
         scores: Prediction scores (higher = more likely bonafide)
         labels: Ground truth labels (0=spoof, 1=bonafide)
-        c_miss: Cost of missing a bonafide (false negative)
-        c_fa: Cost of false alarm on spoof (false positive)
-        p_target: Prior probability of bonafide
+        c_miss: Cost of missing a bonafide (false negative), default=1.0
+        c_fa: Cost of false alarm on spoof (false positive), default=10.0
+        p_target: Prior probability of bonafide (1 - π_spf), default=0.05
 
     Returns:
-        (min_dcf, threshold)
+        (min_dcf_normalized, threshold): Normalized minDCF and its threshold
     """
     fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
-    # Compute DCF for each threshold
+    # Compute unnormalized DCF for each threshold
     dcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)
 
-    # Find minimum DCF
-    min_dcf_idx = np.argmin(dcf)
-    min_dcf = dcf[min_dcf_idx]
+    # Compute normalization factor β
+    # DCF_def = min{C_miss * (1 - π_spf), C_fa * π_spf}
+    dcf_def = min(c_miss * p_target, c_fa * (1 - p_target))
+
+    # Normalize DCF by dividing by DCF_def
+    dcf_normalized = dcf / dcf_def
+
+    # Find minimum normalized DCF
+    min_dcf_idx = np.argmin(dcf_normalized)
+    min_dcf_normalized = dcf_normalized[min_dcf_idx]
     min_dcf_threshold = thresholds[min_dcf_idx]
 
-    return min_dcf, min_dcf_threshold
+    return min_dcf_normalized, min_dcf_threshold
 
 
 def compute_act_dcf(
     scores: np.ndarray,
     labels: np.ndarray,
     c_miss: float = 1.0,
-    c_fa: float = 1.0,
+    c_fa: float = 10.0,
     p_target: float = 0.05
 ) -> float:
     """
-    Compute actual Detection Cost Function (actDCF) at EER threshold
+    Compute actual Detection Cost Function (actDCF) at Bayes threshold for ASVspoof5 Track 1
+
+    Following ASVspoof5 specification:
+    - τ_bayes = -log(β) where β = C_miss * (1 - π_spf) / (C_fa * π_spf) ≈ 1.90
+    - actDCF = DCF'(τ_bayes) (normalized actual DCF at Bayes-optimal threshold)
+
+    Note: This assumes detection scores can be interpreted as log-likelihood ratios.
+    If scores are probabilities, conversion may be needed.
 
     Args:
         scores: Prediction scores (higher = more likely bonafide)
         labels: Ground truth labels (0=spoof, 1=bonafide)
-        c_miss: Cost of miss
-        c_fa: Cost of false alarm
-        p_target: Prior probability of target
+        c_miss: Cost of missing a bonafide (false negative), default=1.0
+        c_fa: Cost of false alarm on spoof (false positive), default=10.0
+        p_target: Prior probability of bonafide (1 - π_spf), default=0.05
 
     Returns:
-        act_dcf: Actual DCF at EER threshold
+        act_dcf_normalized: Normalized actual DCF at Bayes threshold
     """
-    _, eer_threshold = compute_eer(scores, labels)
+    # Compute β (beta factor)
+    beta = (c_miss * p_target) / (c_fa * (1 - p_target))
 
-    # Make predictions at EER threshold
-    predictions = (scores >= eer_threshold).astype(int)
+    # Bayes-optimal threshold τ_bayes = -log(β)
+    # For probability scores in [0,1], we need to convert to log-likelihood ratios
+    # Since scores are probabilities P(bonafide|x), we compute log-odds
+    eps = 1e-10
+    scores_clipped = np.clip(scores, eps, 1 - eps)
+
+    # Convert probability scores to log-likelihood ratios
+    # LLR = log(P(bonafide|x) / P(spoof|x))
+    llr_scores = np.log(scores_clipped / (1 - scores_clipped))
+
+    # Bayes threshold in log-likelihood ratio space
+    tau_bayes = -np.log(beta)
+
+    # Make predictions at Bayes threshold
+    predictions = (llr_scores >= tau_bayes).astype(int)
 
     # Compute confusion matrix elements
     tp = np.sum((predictions == 1) & (labels == 1))
@@ -357,14 +391,18 @@ def compute_act_dcf(
     fn = np.sum((predictions == 0) & (labels == 1))
     tn = np.sum((predictions == 0) & (labels == 0))
 
-    # Compute rates
-    fnr = fn / (tp + fn + 1e-10)
-    fpr = fp / (fp + tn + 1e-10)
+    # Compute error rates
+    fnr = fn / (tp + fn + 1e-10)  # P_miss (miss rate for bonafide)
+    fpr = fp / (fp + tn + 1e-10)  # P_fa (false alarm rate for spoof)
 
-    # Compute actual DCF
+    # Compute unnormalized actual DCF
     act_dcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)
 
-    return act_dcf
+    # Normalize by DCF_def
+    dcf_def = min(c_miss * p_target, c_fa * (1 - p_target))
+    act_dcf_normalized = act_dcf / dcf_def
+
+    return act_dcf_normalized
 
 
 def compute_cllr(
