@@ -60,7 +60,7 @@ class ModelArgs:
     dim_feedforward: int = 1024
     model_dropout: float = 0.3
     activation: str = "relu"
-    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
+    pooling_method: str = "attention"  # Options: "mean", "attention", "top-k"
     top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
@@ -87,7 +87,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./focal_0.1_2.0_top-k/"
+    save_dir: str = "./focal_0.1_2.0_attention/"
 
     # Other
     seed: int = 42
