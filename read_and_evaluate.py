@@ -25,10 +25,7 @@ from utils import (
 )
 
 
-# ============================================================================
 # Evaluation Configuration
-# ============================================================================
-
 @dataclass
 class DatasetConfig:
     """Configuration for a single dataset"""
@@ -72,7 +69,7 @@ class EvaluationConfig:
 
     # Audio processing parameters
     sample_rate: int = 16000
-    duration_sec: float = 2.0
+    duration_sec: float = 4.0
     mono: bool = True
     normalize: bool = True
 
@@ -93,7 +90,7 @@ class EvaluationConfig:
     dim_feedforward: int = 1024
     model_dropout: float = 0.3
     activation: str = "relu"
-    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
+    pooling_method: str = "attention"  # Options: "mean", "attention", "top-k"
     top_k_ratio: float = 0.5  # For top-k pooling: ratio of frames to keep
 
     # Miscellaneous
@@ -105,10 +102,7 @@ class EvaluationConfig:
     tta_num_crops: int = 5
 
 
-# ============================================================================
 # Data Loading
-# ============================================================================
-
 def create_dataloader(
     dataset_config: DatasetConfig,
     config: EvaluationConfig
@@ -160,10 +154,7 @@ def create_dataloader(
     return loader
 
 
-# ============================================================================
 # Evaluation Functions
-# ============================================================================
-
 def evaluate_dataset(
     model: nn.Module,
     dataloader: torch.utils.data.DataLoader,
@@ -203,16 +194,7 @@ def evaluate_dataset(
     return all_logits, all_labels
 
 
-# Calibration functions moved to utils.py:
-# - apply_platt_calibration()
-# - apply_prior_correction()
-# - compute_metrics_from_scores()
-
-
-# ============================================================================
 # Main Evaluation
-# ============================================================================
-
 def main():
     """
     Main evaluation function
@@ -252,9 +234,7 @@ def main():
     device = get_device()
     clear_cuda_cache()
 
-    # ========================================================================
-    # Step 1: Load Data
-    # ========================================================================
+    # Load Data
     print("\n" + "="*80)
     print("STEP 1: LOADING DATA")
     print("="*80)
@@ -267,9 +247,7 @@ def main():
 
     print(f"\n[SUCCESS] Loaded {len(dataloaders)} datasets")
 
-    # ========================================================================
-    # Step 2: Create and Load Model
-    # ========================================================================
+    # Create and Load Model
     print("\n" + "="*80)
     print("STEP 2: CREATING AND LOADING MODEL")
     print("="*80)
@@ -297,9 +275,7 @@ def main():
     model = load_model_weights(model, config.model_path, device, strict=False)
     model = model.to(device)
 
-    # ========================================================================
-    # Step 3: Evaluate on All Datasets
-    # ========================================================================
+    # Evaluate on All Datasets
     print("\n" + "="*80)
     print("STEP 3: EVALUATE ON ALL DATASETS")
     print("="*80)
@@ -329,9 +305,7 @@ def main():
             'initial_scores': bonafide_probs
         }
 
-    # ========================================================================
-    # Step 4: Apply Calibration and Prior Correction (if enabled)
-    # ========================================================================
+    # Apply Calibration and Prior Correction (if enabled)
     if dev_dataset_idx is not None:
         # Check if any dataset needs calibration
         datasets_need_calibration = [ds for ds in config.datasets if ds.apply_calibration]
@@ -400,9 +374,7 @@ def main():
     else:
         print(f"\n[WARNING] Cannot perform calibration without 'Dev' dataset")
 
-    # ========================================================================
-    # Step 5: Print Final Results
-    # ========================================================================
+    # Print Final Results
     print("\n" + "="*80)
     print("FINAL EVALUATION RESULTS")
     print("="*80)
