@@ -285,15 +285,15 @@ def compute_min_dcf(
     labels: np.ndarray,
     c_miss: float = 1.0,
     c_fa: float = 10.0,
-    p_target: float = 0.05
+    pi_spf: float = 0.05
 ) -> Tuple[float, float]:
     """
     Compute minimum Detection Cost Function (minDCF) for ASVspoof5 Track 1
 
     Following ASVspoof5 specification:
     - DCF(τ) = C_miss * (1 - π_spf) * P_miss(τ) + C_fa * π_spf * P_fa(τ)
-    - Normalized: DCF'(τ) = β * [P_miss(τ) + P_fa(τ)]
-    - where β = C_miss * (1 - π_spf) / C_fa / π_spf ≈ 1.90
+    - Normalized: DCF'(τ) = β * P_miss(τ) + P_fa(τ)
+    - where β = C_miss * (1 - π_spf) / (C_fa * π_spf) ≈ 1.90
     - minDCF = min_τ DCF'(τ)
 
     Args:
@@ -301,7 +301,7 @@ def compute_min_dcf(
         labels: Ground truth labels (0=spoof, 1=bonafide)
         c_miss: Cost of missing a bonafide (false negative), default=1.0
         c_fa: Cost of false alarm on spoof (false positive), default=10.0
-        p_target: Prior probability of bonafide (1 - π_spf), default=0.05
+        pi_spf: Prior probability of spoofing attack (π_spf), default=0.05
 
     Returns:
         (min_dcf_normalized, threshold): Normalized minDCF and its threshold
@@ -309,15 +309,12 @@ def compute_min_dcf(
     fpr, tpr, thresholds = roc_curve(labels, scores, pos_label=1)
     fnr = 1 - tpr
 
-    # Compute unnormalized DCF for each threshold
-    dcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)
+    # Compute β factor
+    beta = (c_miss * (1 - pi_spf)) / (c_fa * pi_spf)
 
-    # Compute normalization factor β
-    # DCF_def = min{C_miss * (1 - π_spf), C_fa * π_spf}
-    dcf_def = min(c_miss * p_target, c_fa * (1 - p_target))
-
-    # Normalize DCF by dividing by DCF_def
-    dcf_normalized = dcf / dcf_def
+    # Compute normalized DCF for each threshold
+    # DCF'(τ) = β * P_miss(τ) + P_fa(τ)
+    dcf_normalized = beta * fnr + fpr
 
     # Find minimum normalized DCF
     min_dcf_idx = np.argmin(dcf_normalized)
@@ -332,7 +329,7 @@ def compute_act_dcf(
     labels: np.ndarray,
     c_miss: float = 1.0,
     c_fa: float = 10.0,
-    p_target: float = 0.05
+    pi_spf: float = 0.05
 ) -> float:
     """
     Compute actual Detection Cost Function (actDCF) at Bayes threshold for ASVspoof5 Track 1
@@ -349,13 +346,13 @@ def compute_act_dcf(
         labels: Ground truth labels (0=spoof, 1=bonafide)
         c_miss: Cost of missing a bonafide (false negative), default=1.0
         c_fa: Cost of false alarm on spoof (false positive), default=10.0
-        p_target: Prior probability of bonafide (1 - π_spf), default=0.05
+        pi_spf: Prior probability of spoofing attack (π_spf), default=0.05
 
     Returns:
         act_dcf_normalized: Normalized actual DCF at Bayes threshold
     """
     # Compute β (beta factor)
-    beta = (c_miss * p_target) / (c_fa * (1 - p_target))
+    beta = (c_miss * (1 - pi_spf)) / (c_fa * pi_spf)
 
     # Bayes-optimal threshold τ_bayes = -log(β)
     # For probability scores in [0,1], we need to convert to log-likelihood ratios
@@ -383,12 +380,9 @@ def compute_act_dcf(
     fnr = fn / (tp + fn + 1e-10)  # P_miss (miss rate for bonafide)
     fpr = fp / (fp + tn + 1e-10)  # P_fa (false alarm rate for spoof)
 
-    # Compute unnormalized actual DCF
-    act_dcf = c_miss * fnr * p_target + c_fa * fpr * (1 - p_target)
-
-    # Normalize by DCF_def
-    dcf_def = min(c_miss * p_target, c_fa * (1 - p_target))
-    act_dcf_normalized = act_dcf / dcf_def
+    # Compute normalized actual DCF
+    # DCF'(τ) = β * P_miss(τ) + P_fa(τ)
+    act_dcf_normalized = beta * fnr + fpr
 
     return act_dcf_normalized
 
@@ -398,42 +392,48 @@ def compute_cllr(
     labels: np.ndarray
 ) -> float:
     """
-    Compute Calibrated Log-Likelihood Ratio (CLLR) cost
+    Compute Cost of Log-Likelihood Ratio (C_llr)
 
-    CLLR measures how well scores represent calibrated posterior probabilities
-    Lower values indicate better calibration (0 is perfect)
+    Following ASVspoof5 specification:
+    C_llr = 1/(2*log(2)) * [1/|Bon| * Σ log(1 + e^(-s_i)) + 1/|Spf| * Σ log(1 + e^(s_j))]
 
-    CLLR = 0.5 * (C_llr_bonafide + C_llr_spoof)
+    where s_i are scores for bonafide samples and s_j are scores for spoof samples.
+    Scores should be log-likelihood ratios (LLRs). Lower values indicate better calibration (0 is perfect).
 
     Args:
-        scores: Posterior probability scores P(bonafide|x) in [0, 1]
+        scores: Scores interpreted as log-likelihood ratios (higher = more likely bonafide)
         labels: Ground truth labels (0=spoof, 1=bonafide)
 
     Returns:
-        cllr: Calibrated Log-Likelihood Ratio cost
+        cllr: Cost of Log-Likelihood Ratio
     """
-    # Ensure scores are in valid range
+    # Ensure scores are in valid range and convert to LLRs if they are probabilities
     eps = 1e-10
     scores = np.clip(scores, eps, 1 - eps)
+
+    # Convert probability scores to log-likelihood ratios if in [0,1] range
+    # LLR = log(P(bonafide|x) / P(spoof|x))
+    if np.all((scores >= 0) & (scores <= 1)):
+        llr_scores = np.log(scores / (1 - scores))
+    else:
+        llr_scores = scores
 
     # Separate bonafide and spoof samples
     bonafide_mask = (labels == 1)
     spoof_mask = (labels == 0)
 
-    bonafide_scores = scores[bonafide_mask]
-    spoof_scores = scores[spoof_mask]
+    bonafide_llrs = llr_scores[bonafide_mask]
+    spoof_llrs = llr_scores[spoof_mask]
 
-    # Compute log-likelihood ratio costs
-    # For bonafide samples: want high scores (close to 1)
-    # Cost = -log2(score) = negative log-likelihood
-    c_llr_bonafide = -np.log2(bonafide_scores).mean()
+    # Compute log-likelihood ratio costs according to ASVspoof5 formula
+    # For bonafide samples: log(1 + e^(-s_i))
+    c_llr_bonafide = np.mean(np.log(1 + np.exp(-bonafide_llrs)))
 
-    # For spoof samples: want low scores (close to 0)
-    # Cost = -log2(1 - score)
-    c_llr_spoof = -np.log2(1 - spoof_scores).mean()
+    # For spoof samples: log(1 + e^(s_j))
+    c_llr_spoof = np.mean(np.log(1 + np.exp(spoof_llrs)))
 
-    # CLLR is the average of both costs
-    cllr = 0.5 * (c_llr_bonafide + c_llr_spoof)
+    # C_llr with normalization factor 1/(2*log(2))
+    cllr = (1 / (2 * np.log(2))) * (c_llr_bonafide + c_llr_spoof)
 
     return cllr
 
