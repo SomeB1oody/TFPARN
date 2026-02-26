@@ -10,6 +10,22 @@ A Transformer solution for detecting AI-generated synthetic speech in the ASVspo
 
 **Python Version:** 3.10 or higher
 
+**Dependencies:**
+```
+torch~=2.9.0+cu130
+numpy~=2.1.2
+scikit-learn~=1.7.1
+tqdm~=4.67.1
+torchaudio~=2.9.0
+soundfile~=0.13.1
+scipy~=1.15.3
+```
+
+Install via:
+```bash
+pip install -r requirements.txt
+```
+
 **Hardware Requirements:**
 - **GPU (Recommended):** NVIDIA GPU with 8GB+ VRAM and CUDA 13.0
 - **CPU:** 8-core processor (training on CPU is supported but significantly slower)
@@ -103,17 +119,14 @@ class ModelArgs:
 
     # Augmentation
     use_rawboost: bool = True               # Enable RawBoost augmentation
-    rawboost_prob: float = 0.5              # Probability of applying RawBoost
-
-    # Test-Time Augmentation
-    use_tta: bool = True                    # Enable TTA for validation/evaluation
-    tta_num_crops: int = 5                  # Number of crops for TTA
 
     # Early stopping
     early_stopping_patience: int = 15       # Patience for early stopping
+    early_stopping_metric: str = "eer"      # Metric to monitor ('eer', 'f1_macro', 'accuracy')
+    early_stopping_mode: str = "min"        # 'min' for eer, 'max' for f1/acc
 
     # Model saving
-    save_dir: str = "./checkpoints/"           # Directory to save models
+    save_dir: str = "./checkpoints/"        # Directory to save models
 ```
 
 ### Adjusting Batch Size for Different GPUs
@@ -162,23 +175,15 @@ class EvaluationConfig:
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [
         DatasetConfig(
-            name="Train",
-            data_dir="N:/Dataset/ASV5/flac_T/",
-            protocol_dir="N:/Dataset/ASV5/ASVspoof5.train.tsv",
-            use_tta=False,
-        ),
-        DatasetConfig(
             name="Dev",
             data_dir="N:/Dataset/ASV5/flac_D/",
             protocol_dir="N:/Dataset/ASV5/ASVspoof5.dev.track_1.tsv",
-            use_tta=True,
         ),
         DatasetConfig(
             name="Eval",
             data_dir="N:/Dataset/ASV5/flac_E/",
             protocol_dir="N:/Dataset/ASV5/ASVspoof5.eval.track_1.tsv",
             apply_calibration=True,
-            use_tta=True,
         )
     ])
 ```
@@ -226,18 +231,18 @@ from dataclasses import dataclass
 class ModelArgs:
     # ...
     
-    # Model Parameters (from model.py)
-    n_mels: int = 160
-    n_fft: int = 1024
-    hop_length: int = 160
-    d_model: int = 256
-    nhead: int = 8
-    num_layers: int = 6
-    dim_feedforward: int = 1024
-    model_dropout: float = 0.3
-    activation: str = "relu"
-    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
-    top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
+    # Model architecture
+    n_mels: int = 160                       # Number of mel filterbanks
+    n_fft: int = 1024                       # FFT window size
+    hop_length: int = 160                   # Hop length for STFT
+    d_model: int = 256                      # Model dimension
+    nhead: int = 8                          # Number of attention heads
+    num_layers: int = 6                     # Number of Transformer layers
+    dim_feedforward: int = 1024             # Feedforward dimension
+    model_dropout: float = 0.3              # Dropout rate
+    activation: str = "relu"                # Activation function
+    pooling_method: str = "mean"            # Options: "mean", "attention", "top-k"
+    top_k_ratio: float = 0.3                # For top-k pooling: ratio of frames to keep
 
     # ...
 ```
@@ -288,29 +293,8 @@ from dataclasses import dataclass
 @dataclass
 class ModelArgs:
     # ...
-    
-    use_rawboost = True        # Enable/disable RawBoost
-    rawboost_prob = 0.5        # Probability of applying (0.0-1.0)
 
-    # ...
-```
-
-**Test-Time Augmentation (TTA):**
-- Generates multiple crops per sample during inference
-- Averages predictions for robustness
-- Typically improves EER by 2-3%
-
-Configure in `main_train.py`:
-
-```python
-from dataclasses import dataclass
-
-@dataclass
-class ModelArgs:
-    # ...
-    
-    use_tta = True             # Enable/disable TTA
-    tta_num_crops = 5          # Number of crops (3-7 recommended)
+    use_rawboost: bool = True        # Enable/disable RawBoost
 
     # ...
 ```
@@ -341,32 +325,44 @@ def create_experiment_list() -> List[ModelArgs]:
     """
     experiments = []
 
-    # Experiment 1
+    # Experiment 1: Focal Loss with Attention Pooling
     exp1 = ModelArgs()
     exp1.learning_rate = 1e-4
     exp1.weight_decay = 1e-2
-    exp1.pooling_method = "mean"
+    exp1.pooling_method = "attention"
     exp1.loss_type = "focal"
-    exp1.enable_pairwise = False
-    exp1.focal_alpha = 0.1
+    exp1.enable_pairwise = True
+    exp1.focal_alpha = 0.5
     exp1.focal_gamma = 2.0
-    exp1.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_no_pairwise/"
+    exp1.save_dir = "./final_TFPARN/focal_0.5_2.0_attention/"
 
-    # Experiment 2
+    # Experiment 2: Focal Loss with Top-k Pooling
     exp2 = ModelArgs()
     exp2.learning_rate = 1e-4
     exp2.weight_decay = 1e-2
-    exp2.pooling_method = "mean"
+    exp2.pooling_method = "top-k"
     exp2.loss_type = "focal"
     exp2.enable_pairwise = True
-    exp2.focal_alpha = 0.1
+    exp2.focal_alpha = 0.5
     exp2.focal_gamma = 2.0
-    exp2.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0/"
+    exp2.save_dir = "./final_TFPARN/focal_0.5_2.0_top-k/"
+
+    # Experiment 3: Focal Loss with Mean Pooling
+    exp3 = ModelArgs()
+    exp3.learning_rate = 1e-4
+    exp3.weight_decay = 1e-2
+    exp3.pooling_method = "mean"
+    exp3.loss_type = "focal"
+    exp3.enable_pairwise = True
+    exp3.focal_alpha = 0.5
+    exp3.focal_gamma = 2.0
+    exp3.save_dir = "./final_TFPARN/focal_0.5_2.0/"
 
     # More can be added here...
-    
+
     experiments.append(exp1)
     experiments.append(exp2)
+    experiments.append(exp3)
     # More can be added here...
 
     return experiments
