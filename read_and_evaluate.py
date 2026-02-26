@@ -42,7 +42,7 @@ class EvaluationConfig:
     Evaluation configuration parameters
     """
     # Model path
-    model_path: str = "./checkpoints/best_model.pt"
+    model_path: str = "./final_TFPARN/focal_0.5_2.0_attention/best_model_eer_0.1264/best_model_eer_0.1264.pt"
 
     # Dataset configurations
     datasets: List[DatasetConfig] = field(default_factory=lambda: [

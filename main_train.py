@@ -49,6 +49,7 @@ class ModelArgs:
     pin_memory: bool = True
     persistent_workers: bool = True
     train_shuffle: bool = True
+    use_rawboost: bool = True
 
     # Model Parameters
     n_mels: int = 160
@@ -60,7 +61,7 @@ class ModelArgs:
     dim_feedforward: int = 1024
     model_dropout: float = 0.3
     activation: str = "relu"
-    pooling_method: str = "attention"  # Options: "mean", "attention", "top-k"
+    pooling_method: str = "mean"  # Options: "mean", "attention", "top-k"
     top_k_ratio: float = 0.3  # For top-k pooling: ratio of frames to keep
 
     # Training Hyperparameters
@@ -72,12 +73,12 @@ class ModelArgs:
     scheduler_warmup_epochs: int = 5
 
     # Loss Function ('ce' or 'focal')
-    loss_type: str = "focal"
-    focal_alpha: float = 0.1  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
+    loss_type: str = "ce"
+    focal_alpha: float = 0.5  # Alpha for focal loss (positive class weight, negative uses 1-alpha)
     focal_gamma: float = 2.0  # Gamma for focal loss
 
     # Pairwise AUC/pAUC Loss
-    enable_pairwise: bool = True  # Whether to enable pairwise loss
+    enable_pairwise: bool = False  # Whether to enable pairwise loss
     pairwise_margin: float = 1.0  # Margin for pairwise ranking loss
     pairwise_weight: float = 0.3  # Weight for pairwise loss term
 
@@ -87,7 +88,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
 
     # Model Checkpoint
-    save_dir: str = "./focal_0.1_2.0_attention/"
+    save_dir: str = "./final_TFPARN/ce"
 
     # Other
     seed: int = 42
@@ -267,6 +268,7 @@ def main():
     data_args.prefetch_factor = args.prefetch_factor
     data_args.pin_memory = args.pin_memory
     data_args.persistent_workers = args.persistent_workers
+    data_args.use_rawboost = args.use_rawboost
     data_args.train_shuffle = args.train_shuffle
     data_args.seed = args.seed
     data_args.use_tta = True  # Enable/Disable  TTA for dev/eval

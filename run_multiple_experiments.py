@@ -37,60 +37,56 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1 = ModelArgs()
     exp1.learning_rate = 1e-4
     exp1.weight_decay = 1e-2
-    exp1.pooling_method = "mean"
+    exp1.pooling_method = "attention"
     exp1.loss_type = "focal"
-    exp1.enable_pairwise = False
-    exp1.focal_alpha = 0.1
+    exp1.enable_pairwise = True
+    exp1.focal_alpha = 0.5
     exp1.focal_gamma = 2.0
-    exp1.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_no_pairwise/"
+    exp1.save_dir = "./final_TFPARN/focal_0.5_2.0_attention/"
 
     # Experiment 2
     exp2 = ModelArgs()
     exp2.learning_rate = 1e-4
     exp2.weight_decay = 1e-2
-    exp2.pooling_method = "mean"
+    exp2.pooling_method = "top-k"
     exp2.loss_type = "focal"
     exp2.enable_pairwise = True
-    exp2.focal_alpha = 0.1
+    exp2.focal_alpha = 0.5
     exp2.focal_gamma = 2.0
-    exp2.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0/"
+    exp2.save_dir = "./final_TFPARN/focal_0.5_2.0_top-k/"
 
     # Experiment 3
     exp3 = ModelArgs()
     exp3.learning_rate = 1e-4
     exp3.weight_decay = 1e-2
-    exp3.pooling_method = "attention"
+    exp3.pooling_method = "mean"
     exp3.loss_type = "focal"
     exp3.enable_pairwise = True
-    exp3.focal_alpha = 0.1
+    exp3.focal_alpha = 0.5
     exp3.focal_gamma = 2.0
-    exp3.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_attention/"
+    exp3.save_dir = "./final_TFPARN/focal_0.5_2.0/"
 
     # Experiment 4
     exp4 = ModelArgs()
-    exp4.batch_size = 96
     exp4.learning_rate = 1e-4
     exp4.weight_decay = 1e-2
-    exp4.pooling_method = "top-k"
-    exp4.loss_type = "focal"
+    exp4.pooling_method = "mean"
+    exp4.loss_type = "ce"
     exp4.enable_pairwise = True
-    exp4.focal_alpha = 0.1
+    exp4.focal_alpha = 0.5
     exp4.focal_gamma = 2.0
-    exp4.save_dir = "./final_nc/focal_0.1_2.0_related/focal_0.1_2.0_top-k/"
+    exp4.save_dir = "./final_TFPARN/ce_pairwise/"
 
     # Experiment 5
     exp5 = ModelArgs()
-    exp5.train_data_dir = "N:/Dataset/ASV5+2019LA_Train/flac_T/"
-    exp5.train_protocol_dir = "N:/Dataset/ASV5+2019LA_Train/ASV5+2019LA_Train.txt"
-    exp5.batch_size = 96
     exp5.learning_rate = 1e-4
     exp5.weight_decay = 1e-2
-    exp5.pooling_method = "attention"
-    exp5.loss_type = "focal"
-    exp5.enable_pairwise = True
-    exp5.focal_alpha = 0.1
+    exp5.pooling_method = "mean"
+    exp5.loss_type = "ce"
+    exp5.enable_pairwise = False
+    exp5.focal_alpha = 0.5
     exp5.focal_gamma = 2.0
-    exp5.save_dir = "./final_nc/ASV5+2019LA_Train/"
+    exp5.save_dir = "./final_TFPARN/ce_no_pairwise/"
 
     experiments.append(exp1)
     experiments.append(exp2)
@@ -337,15 +333,15 @@ def run_single_experiment(
     data_args.use_tta = True
     _, dev_loader_tta, eval_loader_tta = make_loaders(data_args)
 
-    # Evaluate with calibration (with TTA-enabled loaders)
+    # Evaluate without calibration (with TTA-enabled loaders)
     results = evaluate_with_calibration(
         model=model,
         train_loader=train_loader,
         dev_loader=dev_loader_tta,
         eval_loader=eval_loader_tta,
         device=device,
-        apply_calibration=True,
-        enable_prior_correction=True
+        apply_calibration=False,
+        enable_prior_correction=False
     )
 
     final_train_metrics = results['train']['initial_metrics']
