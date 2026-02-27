@@ -84,8 +84,8 @@ class ModelArgs:
 
     # Early Stopping
     early_stopping_patience: int = 15
-    early_stopping_metric: str = "eer"  # Options: 'f1_macro', 'accuracy', 'recall_macro', 'eer', 'auc_roc'
-    early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer
+    early_stopping_metric: str = "min_dcf"  # Options: 'f1_macro', 'accuracy', 'recall_macro', 'eer', 'auc_roc', 'min_dcf'
+    early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer/min_dcf
 
     # Model Checkpoint
     save_dir: str = "./final_TFPARN/ce"

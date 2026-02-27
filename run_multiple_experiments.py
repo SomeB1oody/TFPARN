@@ -42,7 +42,7 @@ def create_experiment_list() -> List[ModelArgs]:
     exp1.enable_pairwise = True
     exp1.focal_alpha = 0.5
     exp1.focal_gamma = 2.0
-    exp1.save_dir = "./final_TFPARN/focal_0.5_2.0_attention/"
+    exp1.save_dir = "./TFPARN_models/focal_0.5_2.0_attention/"
 
     # Experiment 2
     exp2 = ModelArgs()
@@ -53,7 +53,7 @@ def create_experiment_list() -> List[ModelArgs]:
     exp2.enable_pairwise = True
     exp2.focal_alpha = 0.5
     exp2.focal_gamma = 2.0
-    exp2.save_dir = "./final_TFPARN/focal_0.5_2.0_top-k/"
+    exp2.save_dir = "./TFPARN_models/focal_0.5_2.0_top-k/"
 
     # Experiment 3
     exp3 = ModelArgs()
@@ -64,7 +64,7 @@ def create_experiment_list() -> List[ModelArgs]:
     exp3.enable_pairwise = True
     exp3.focal_alpha = 0.5
     exp3.focal_gamma = 2.0
-    exp3.save_dir = "./final_TFPARN/focal_0.5_2.0/"
+    exp3.save_dir = "./TFPARN_models/focal_0.5_2.0/"
 
     # Experiment 4
     exp4 = ModelArgs()
@@ -75,7 +75,7 @@ def create_experiment_list() -> List[ModelArgs]:
     exp4.enable_pairwise = True
     exp4.focal_alpha = 0.5
     exp4.focal_gamma = 2.0
-    exp4.save_dir = "./final_TFPARN/ce_pairwise/"
+    exp4.save_dir = "./TFPARN_models/ce_pairwise/"
 
     # Experiment 5
     exp5 = ModelArgs()
@@ -86,7 +86,7 @@ def create_experiment_list() -> List[ModelArgs]:
     exp5.enable_pairwise = False
     exp5.focal_alpha = 0.5
     exp5.focal_gamma = 2.0
-    exp5.save_dir = "./final_TFPARN/ce_no_pairwise/"
+    exp5.save_dir = "./TFPARN_models/ce_no_pairwise/"
 
     experiments.append(exp1)
     experiments.append(exp2)
