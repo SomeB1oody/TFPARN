@@ -88,7 +88,7 @@ class ModelArgs:
     early_stopping_mode: str = "min"  # 'max' for f1/acc/recall/auc, 'min' for eer/min_dcf
 
     # Model Checkpoint
-    save_dir: str = "./final_TFPARN/ce"
+    save_dir: str = "./somewhere"
 
     # Other
     seed: int = 42
