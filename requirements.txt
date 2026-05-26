@@ -1,7 +1,0 @@
-torch~=2.9.0+cu130
-numpy~=2.1.2
-scikit-learn~=1.7.1
-tqdm~=4.67.1
-torchaudio~=2.9.0
-soundfile~=0.13.1
-scipy~=1.15.3
