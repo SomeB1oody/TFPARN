@@ -1,3 +1,9 @@
+# Cite This Work
+
+```
+Yin, S., & Zhao, B. (2026). A training-efficient transformer-based anti-spoofing network for logical access in ASVspoof 5. arXiv. https://doi.org/10.48550/arXiv.2606.02980
+```
+
 # TFPARN (Transformer-based Focal-Pairwise Attentive Ranking Network) for Anti-Spoofing
 
 A Transformer solution for detecting AI-generated synthetic speech in the ASVspoof5 challenge. The model distinguishes between genuine human speech (bonafide) and AI-generated synthetic speech (spoof) with a complete end-to-end architecture: the log-mel spectrogram is computed *inside* the model, a Transformer encoder processes it, and a classification head produces binary logits.
@@ -142,7 +148,7 @@ python main_train.py
 
 The full configuration lives in the `ModelArgs` dataclass in `Model/main_train.py`. The defaults that define **TFPARN** are:
 
-```python
+``` python
 @dataclass
 class ModelArgs:
     # Audio processing
@@ -337,7 +343,7 @@ cd Model
 python run_multiple_experiments.py
 ```
 
-```python
+``` python
 from typing import List
 from main_train import ModelArgs
 
